@@ -8,19 +8,10 @@ based interface. Models can be constructed node by node and edge by edge, built
 up from smaller models, loaded from files, baked (into a form that can be used
 to calculate probabilities efficiently), trained on data, and saved.
 
-Given those scripts status as a .pyx file, the easiest way to import it
-directly is to write the following at the top of any script:
-
-```
->>> import pyximport
->>> import numpy as np
->>> pyximport.install( setup_args={'include_dirs':np.get_include()})
->>> from yahmm import * 
-```
-
-This may produce an error that vcvarsall.bat cannot be found. This can usually be
-fixed by ensuring that your \Lib\distutils\distutils.cfg file looks like the
-following:
+Running this script for the first time will bring up a long series of warnings.
+This is normal, as of version 0.1. However, this may produce an error that 
+vcvarsall.bat cannot be found. This can usually be fixed by ensuring that your 
+\Lib\distutils\distutils.cfg file looks like the following:
 
 ```
 [build]
