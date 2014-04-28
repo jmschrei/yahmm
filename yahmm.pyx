@@ -2671,7 +2671,7 @@ cdef class Model(object):
 		# given our data and our current parameters, but allowing the paths 
 		# taken to vary. (Indexed: from, to)
 		cdef double [:,:] expected_transitions = numpy.zeros((m, m))
-		cdef double [:,:] emission_weights = numpy.zeros((m, n))
+		cdef double [:,:] emission_weights = numpy.zeros((n, m))
 
 		cdef double log_sequence_probability
 		cdef double log_transition_emission_probability_sum
@@ -2755,7 +2755,7 @@ cdef class Model(object):
 					# According to http://www1.icsi.berkeley.edu/Speech/
 					# docs/HTKBook/node7_mn.html, we really should divide by
 					# sequence probability.
-					emission_weights[k,i] = self.f[i+1, k] + self.b[i+1, k] - \
+					emission_weights[i,k] = self.f[i+1, k] + self.b[i+1, k] - \
 						log_sequence_probability
 
 		# Normalize transition expectations per row (so it becomes transition 
