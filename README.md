@@ -12,10 +12,10 @@ Given those scripts status as a .pyx file, the easiest way to import it
 directly is to write the following at the top of any script:
 
 ```
-import pyximport
-import numpy as np
-pyximport.install( setup_args={'include_dirs':np.get_include()})
-from yahmm import * 
+>>> import pyximport
+>>> import numpy as np
+>>> pyximport.install( setup_args={'include_dirs':np.get_include()})
+>>> from yahmm import * 
 ```
 
 This may produce an error that vcvarsall.bat cannot be found. This can usually be
@@ -39,13 +39,13 @@ For our examples here we're going to make the random number generator
 deterministic:
 
 ```
-random.seed(0)
+>>> random.seed(0)
 ```
 
 To use this module, first create a Model, which is the main HMM class:
 
 ```
-model = Model(name="ExampleModel")
+>>> model = Model(name="ExampleModel")
 ```
 
 You then need to populate the Model with State objects. States are constructed 
@@ -54,20 +54,20 @@ floats are available, but new Distribution classes are simple to write. For our
 example, we will use the UniformDistribution:
 
 ```
-distribution = UniformDistribution(0.0, 1.0)
+>>> distribution = UniformDistribution(0.0, 1.0)
 ```
 
 And then construct a state that emits from the distribution:
 
 ```
-state = State(distribution, name="uniform")
+>>> state = State(distribution, name="uniform")
 ```
 
 And another state, emitting from a normal distribution with mean 0 and standard 
 deviation 2:
 
 ```
-state2 = State(NormalDistribution(0, 2), name="normal")
+>>> state2 = State(NormalDistribution(0, 2), name="normal")
 ```
 
 If None is used as the distribution when creating a state, that state is a 
@@ -79,14 +79,14 @@ Topologies which include cycles of only silent states are prohibited; most HMM
 algorithms cannot process them.
 
 ```
-silent = State(None, name="silent")
+>>> silent = State(None, name="silent")
 ```
 
 We then add states to the HMM with the Model.add_state method:
 
 ```
-model.add_state(state)
-model.add_state(state2)
+>>> model.add_state(state)
+>>> model.add_state(state2)
 ```
 
 You can then add transitions between states, with associated probabilities.
@@ -94,19 +94,19 @@ Out-edge probabilities are normalized to 1. for every state when the model is
 baked, not before. 
 
 ```
-model.add_transition(state, state, 0.4)
-model.add_transition(state, state2, 0.4)
-model.add_transition(state2, state2, 0.4)
-model.add_transition(state2, state, 0.4)
+>>> model.add_transition(state, state, 0.4)
+>>> model.add_transition(state, state2, 0.4)
+>>> model.add_transition(state2, state2, 0.4)
+>>> model.add_transition(state2, state, 0.4)
 ```
 
 Don't forget transitions in from the start state and out to the end state:
 
 ```
-model.add_transition(model.start, state, 0.5)
-model.add_transition(model.start, state2, 0.5)
-model.add_transition(state, model.end, 0.2)
-model.add_transition(state2, model.end, 0.2)
+>>> model.add_transition(model.start, state, 0.5)
+>>> model.add_transition(model.start, state2, 0.5)
+>>> model.add_transition(state, model.end, 0.2)
+>>> model.add_transition(state2, model.end, 0.2)
 ```
 
 If you want to look at your model, try Model.draw(). Note that this 
@@ -131,29 +131,28 @@ graph. You may toggle 'verbose=True' in the bake method to get a log of
 when either change occurs to your graph.
 
 ```
-model.bake()
+>>> model.bake()
 ```
 
 Now that our model is complete, we can generate an example sequence from it:
 
 ```
-sequence = model.sample()
-sequence
-
+>>> sequence = model.sample()
+>>> sequence
 [0.7579544029403025, 0.25891675029296335, 0.4049341374504143, \
 0.30331272607892745, 0.5833820394550312]
 ```
 And another:
 
 ```
-model.sample()
+>>> model.sample()
 [0.28183784439970383, 0.6183689966753316, -2.411068768608379]
 ```
 
 And another:
 
 ```
-model.sample()
+>>> model.sample()
 [0.47214271545271336, -0.5804485412450214]
 ```
 
@@ -167,7 +166,7 @@ of the sequence, and summing over all paths to align observation i to hidden
 state j. This state can be recovered by pulling it from model.states[j].
 
 ```
-model.forward(sequence)
+>>> model.forward(sequence)
 [[       -inf        -inf        -inf  0.        ]
  [-2.37704475 -0.69314718 -2.1322948         -inf]
  [-3.05961307 -1.43914762 -2.86809348        -inf]
@@ -180,7 +179,7 @@ In order to get the log probability of the full sequence given the model,
 you can write the following:
 
 ```
-model.forward(sequence)[ len(sequence), model.end_index ]
+>>> model.forward(sequence)[ len(sequence), model.end_index ]
 -5.0835566645
 ```
 
@@ -189,7 +188,7 @@ the probability of having aligned observation i to state j and continued
 aligning the remainder of the sequence till the end.
 
 ```
-model.backward(sequence)
+>>> model.backward(sequence)
 [[-5.30670022 -5.30670022        -inf -5.08355666]
  [-4.56069977 -4.56069977        -inf -4.33755622]
  [-3.8249011  -3.8249011         -inf -3.60175755]
@@ -197,7 +196,7 @@ model.backward(sequence)
  [-2.3507983  -2.3507983         -inf -2.12765475]
  [-1.60943791 -1.60943791  0.                -inf]]
 
-model.backward(sequence)[ 0, model.start ]
+>>> model.backward(sequence)[ 0, model.start ]
 -5.0835566645
 ```
 
@@ -209,7 +208,7 @@ at the beginning of the sequence, aligned observation i to state j, and then
 continued on to align the remainder of the sequence to the model.
 
 ```
-model.forward_backward(sequence)
+>>> model.forward_backward(sequence)
 (array([[-2.03205947, -0.39913252, -1.61932212,        -inf],
        [-2.03481952, -0.40209763, -1.60753724,        -inf],
        [       -inf,        -inf,        -inf,        -inf],
@@ -228,7 +227,7 @@ the number of items in the sequence that had been generated by that point in the
 path (to account for the presence of silent states).
 
 ```
-model.viterbi(sequence)
+>>> model.viterbi(sequence)
 (-5.9677480204906654, \
 [(0, State(ExampleModel-start, None)), \
 (1, State(uniform, UniformDistribution(0.0, 1.0))), \
@@ -246,11 +245,11 @@ iteration, and stops if the improvement gets too small or actually goes
 negative.
 
 ```
-sequences = [sequence]
-model.forward(sequence)[ len(sequence), model.end_index ]
+>>> sequences = [sequence]
+>>> model.forward(sequence)[ len(sequence), model.end_index ]
 -5.0835566644993735
 
-log_score = model.train(sequences)
+>>> log_score = model.train(sequences)
 Training improvement: 5.81315226327
 Training improvement: 0.156159401683
 Training improvement: 0.0806734819188
@@ -266,7 +265,7 @@ Training improvement: 0.0067603436265
 Training improvement: 5.5971526649e-06
 Training improvement: 3.75166564481e-12
 
-model.forward(sequence)[ len(sequence), model.end_index ]
+>>> model.forward(sequence)[ len(sequence), model.end_index ]
 4.9533088776424528
 ```
 
@@ -274,7 +273,7 @@ Once you're done working with your model, you can write it out to a stream with
 Model.write(), to be read back in later with Model.read().
 
 ```
-model.write(sys.stdout)
+>>> model.write(sys.stdout)
 ExampleModel 4
 ExampleModel-end *
 ExampleModel-start *
@@ -325,12 +324,12 @@ model. Lets see this in action.
 ```
 If at this point we baked model_a and ran it, we'd get the following:
 ```
-sequence = [ 24.57, 23.10, 11.56, 14.3, 36.4, 33.2, 44.2, 46.7 ]
-model_a.bake( verbose=True )
-print
-print model_a.forward( sequence )
-print
-print model_a.forward( sequence )[ len(sequence), model_a.end_index ]
+>>> sequence = [ 24.57, 23.10, 11.56, 14.3, 36.4, 33.2, 44.2, 46.7 ]
+>>> model_a.bake( verbose=True )
+>>> print
+>>> print model_a.forward( sequence )
+>>> print
+>>> print model_a.forward( sequence )[ len(sequence), model_a.end_index ]
 model_a : model_a-start summed to 0.95, normalized to 1.0
 
 [[         -inf          -inf          -inf    0.        ]
@@ -352,13 +351,13 @@ we had originally set the transition to 1.0
 If instead of the above, we concatenated the models and ran the code, we'd
 get the following:
 ```
-sequence = [ 24.57, 23.10, 11.56, 14.3, 36.4, 33.2, 44.2, 46.7 ]
-model_a.concatenate_model( model_b )
-model_a.bake( verbose=True )
-print
-print model_a.forward( sequence )
-print
-print model_a.forward( sequence )[ len(sequence), model_a.end_index ]
+>>> sequence = [ 24.57, 23.10, 11.56, 14.3, 36.4, 33.2, 44.2, 46.7 ]
+>>> model_a.concatenate_model( model_b )
+>>> model_a.bake( verbose=True )
+>>> print
+>>> print model_a.forward( sequence )
+>>> print
+>>> print model_a.forward( sequence )[ len(sequence), model_a.end_index ]
 model_a : model_a-end (silent) - model_b-start (silent) merged
 model_a : model_a-start summed to 0.95, normalized to 1.0
 model_a : S3 summed to 0.8, normalized to 1.0
@@ -456,33 +455,31 @@ UniformDistribution from the module and replace all its method bodies.
 
 Here is an example discrete distribution over {True, False}:
 ```
-class BernoulliDistribution(Distribution):
-     name = "BernoulliDistribution"
-     def __init__(self, p):
-         self.parameters = [p]
-     def log_probability(self, sample):
-         if sample:
-             return log(self.parameters[0])
-         else:
-             return log(1 - self.parameters[0])
-     def from_sample(self, items, weights=None):
-         if weights is None:
-             weights = numpy.ones_like(items, dtype=float)
-         self.parameters = [float(numpy.dot(items, weights)) / len(items)]
-     def sample(self):
-         return random.random() < self.parameters[0]
-
-BernoulliDistribution.register()
-
-bernoulli = BernoulliDistribution(0.5)
-exp(bernoulli.log_probability(True))
+>>> class BernoulliDistribution(Distribution):
+...     name = "BernoulliDistribution"
+...     def __init__(self, p):
+...         self.parameters = [p]
+...     def log_probability(self, sample):
+...         if sample:
+...             return log(self.parameters[0])
+...         else:
+...             return log(1 - self.parameters[0])
+...     def from_sample(self, items, weights=None):
+...         if weights is None:
+...             weights = numpy.ones_like(items, dtype=float)
+...         self.parameters = [float(numpy.dot(items, weights)) / len(items)]
+...     def sample(self):
+...         return random.random() < self.parameters[0]
+>>> BernoulliDistribution.register()
+>>> bernoulli = BernoulliDistribution(0.5)
+>>> exp(bernoulli.log_probability(True))
 0.5
-sample = [bernoulli.sample() for i in xrange(10)]
-sample
+>>> sample = [bernoulli.sample() for i in xrange(10)]
+>>> sample
 [False, True, False, True, False, False, True, False, True, False]
-bernoulli.from_sample(sample)
-bernoulli.write(sys.stdout)
-BernoulliDistribution 0.4
+>>> bernoulli.from_sample(sample)
+>>> bernoulli.write(sys.stdout)
+>>> BernoulliDistribution 0.4
 ```
 ```
 	# Test HMMS
