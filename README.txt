@@ -1,17 +1,12 @@
-#!/usr/bin/env python2.7
-# yahmm.py: Yet Another Hidden Markov Model library
-# Contact: Jacob Schreiber ( jmschreiber91@gmail.com )
-#          Adam Novak ( anovak1@ucsc.edu )
-
-"""
 Yet Another Hidden Markov Model library
+==========
 
 This module implements Hidden Markov Models (HMMs) with a compositional, graph-
 based interface. Models can be constructed node by node and edge by edge, built
 up from smaller models, loaded from files, baked (into a form that can be used
 to calculate probabilities efficiently), trained on data, and saved.
 
-Running this script for the first time will bring up a long series of warnings.
+Running this script for the first time will bring up a long series of warnings. 
 This is normal, as of version 0.1. However, this may produce an error that 
 vcvarsall.bat cannot be found. This can usually be fixed by ensuring that your 
 \Lib\distutils\distutils.cfg file looks like the following:
@@ -509,11 +504,3 @@ BernoulliDistribution 0.4
 	print model_b.forward([-0.5, 0.2, 0.2]) # Possible
 	print model_b.forward([-0.5, 0.2, 0.2 -0.5]) # Impossible
 	print model_b.forward([-0.5, 0.2, 1.2, 0.8]) # Possible
-
-"""
-
-import numpy as np
-import pyximport
-pyximport.install( setup_args={ 'include_dirs':np.get_include(),
-						'options': {'build_ext': {'compiler': 'mingw32'}}})
-from yahmm import *
