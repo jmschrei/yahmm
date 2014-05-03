@@ -273,9 +273,9 @@ multiple states. See the following example.
 
 # A AND C TIED STATES
 >>> d = NormalDistribution( 5, 2 )
->>> a = State( a, name="A" )
+>>> a = State( d, name="A" )
 >>> b = State( UniformDistribution( 2, 7 ), name="B" )
->>> c = State( a, name="C" )
+>>> c = State( d, name="C" )
 ```
 
 Once you're done working with your model, you can write it out to a stream with 
