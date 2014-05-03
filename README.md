@@ -8,18 +8,6 @@ based interface. Models can be constructed node by node and edge by edge, built
 up from smaller models, loaded from files, baked (into a form that can be used
 to calculate probabilities efficiently), trained on data, and saved.
 
-Running this script for the first time will bring up a long series of warnings.
-This is normal, as of version 0.1. However, this may produce an error that 
-vcvarsall.bat cannot be found. This can usually be fixed by ensuring that your 
-\Lib\distutils\distutils.cfg file looks like the following:
-
-```
-[build]
-compiler=mingw32
-[build_ext]
-compiler=mingw32
-```
-
 Implements the forwards, backwards, forward-backward, and Viterbi algorithms, 
 and training by both Baum-Welch and Viterbi algorithms.
 
@@ -259,6 +247,20 @@ Training improvement: 3.75166564481e-12
 >>> model.forward(sequence)[ len(sequence), model.end_index ]
 4.9533088776424528
 ```
+
+In addition to the Baum-Welch algorithm, viterbi training is also included. 
+This training is quicker, but less exact than the Baum-Welch algorithm. It 
+makes the probability of a transition equal to the frequency of seeing that
+transition in the viterbi path of all the training sequences, and emissions
+to be the distribution retrained on all obervations tagged with that state
+in the viterbi path.
+
+Lastly, tied states are supported in both training algorithms. This is useful
+if many states are supposed to represent the same underlying distribution, which
+should be kept the same even upon being retrained. When not tied, these states
+may diverge slightly from each other. Tying them both keeps them all the same,
+and increases the amount of training data each distribution gets, to hopefully
+get a better result.
 
 Once you're done working with your model, you can write it out to a stream with 
 Model.write(), to be read back in later with Model.read().
