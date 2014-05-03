@@ -262,6 +262,22 @@ may diverge slightly from each other. Tying them both keeps them all the same,
 and increases the amount of training data each distribution gets, to hopefully
 get a better result.
 
+In order to use a tied state, simply pass the same distribution object into
+multiple states. See the following example.
+
+```
+# NOT TIED STATES
+>>> a = State( NormalDistribution( 5, 2 ), name="A" )
+>>> b = State( UniformDistribution( 2, 7 ), name="B" )
+>>> c = State( NormalDistribution( 5, 2 ), name="C" )
+
+# A AND C TIED STATES
+>>> d = NormalDistribution( 5, 2 )
+>>> a = State( a, name="A" )
+>>> b = State( UniformDistribution( 2, 7 ), name="B" )
+>>> c = State( a, name="C" )
+```
+
 Once you're done working with your model, you can write it out to a stream with 
 Model.write(), to be read back in later with Model.read().
 
