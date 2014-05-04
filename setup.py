@@ -31,7 +31,7 @@ setup(
     url='http://pypi.python.org/pypi/yahmm/',
     license='LICENSE.txt',
     description='HMM package which you build node by node and edge by edge.',
-    long_description=open('README.txt').read(),
+    #long_description=open('README.txt').read(),
     cmdclass=cmdclass,
     ext_modules=ext_modules,
     install_requires=[
