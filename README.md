@@ -221,8 +221,7 @@ Given a list of sequences, we can train our HMM by calling Model.train(). This
 returns the final log score: the log of the sum of the probabilities of all 
 training sequences. It also prints the improvement in log score on each training
 iteration, and stops if the improvement gets too small or actually goes 
-negative.
-
+negative. 
 ```
 >>> sequences = [sequence]
 >>> model.forward(sequence)[ len(sequence), model.end_index ]
@@ -254,6 +253,13 @@ makes the probability of a transition equal to the frequency of seeing that
 transition in the viterbi path of all the training sequences, and emissions
 to be the distribution retrained on all obervations tagged with that state
 in the viterbi path.
+
+Model.train is a wrapper for both the Viterbi and Baum-Welch algorithms,
+which can be specified with "algorithm='Baum-Welch'" or "algorithm='Viterbi'".
+The Baum-Welch algorithm can also take min_iterations to do at least that any
+iterations of Baum-Welch training, and stop_threshold to indicate the log score
+improvement at which to stop at-- currently set at 1e-9. Viterbi training takes
+no arguments. 
 
 Lastly, tied states are supported in both training algorithms. This is useful
 if many states are supposed to represent the same underlying distribution, which
@@ -488,7 +494,7 @@ Here is an example discrete distribution over {True, False}:
 [False, True, False, True, False, False, True, False, True, False]
 >>> bernoulli.from_sample(sample)
 >>> bernoulli.write(sys.stdout)
->>> BernoulliDistribution 0.4
+BernoulliDistribution 0.4
 ```
 ```
 	# Test HMMS
