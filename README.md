@@ -244,7 +244,7 @@ Training improvement: 5.5971526649e-06
 Training improvement: 3.75166564481e-12
 
 >>> model.forward(sequence)[ len(sequence), model.end_index ]
-4.9533088776424528
+-4.9533088776424528
 ```
 
 In addition to the Baum-Welch algorithm, viterbi training is also included. 
