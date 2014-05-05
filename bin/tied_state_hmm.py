@@ -31,14 +31,10 @@ print
 model = Model( "No Tied States" )
 
 # Define the four states
-background_one = State( DiscreteDistribution({'A': 0.25, 
-	'C':0.25, 'G': 0.25, 'T':0.25 }), name="B1" )
-CG_island = State( DiscreteDistribution({'A': 0.1, 
-	'C':0.4, 'G': 0.4, 'T':0.1 }), name="CG" )
-background_two = State( DiscreteDistribution({'A': 0.25, 
-	'C':0.25, 'G': 0.25, 'T':0.25 }), name="B2" )
-poly_T = State( DiscreteDistribution({'A': 0.1, 
-	'C':0.1, 'G': 0.1, 'T':0.7 }), name="PT" )
+background_one = State( DiscreteDistribution({'A': 0.25, 'C':0.25, 'G': 0.25, 'T':0.25 }), name="B1" )
+CG_island = State( DiscreteDistribution({'A': 0.1, 'C':0.4, 'G': 0.4, 'T':0.1 }), name="CG" )
+background_two = State( DiscreteDistribution({'A': 0.25, 'C':0.25, 'G': 0.25, 'T':0.25 }), name="B2" )
+poly_T = State( DiscreteDistribution({'A': 0.1, 'C':0.1, 'G': 0.1, 'T':0.7 }), name="PT" )
 
 # Add all the transitions
 model.add_transition( model.start, background_one, 1. )
@@ -55,8 +51,8 @@ model.bake( verbose=True )
 # Define the sequences. Training must be done on a list of lists, not on a string,
 # in order to allow strings of any length.
 sequences = [ numpy.array(list("TAGCACATCGCAGCGCATCACGCGCGCTAGCATATAAGCACGATCAGCACGACTGTTTTT")),
-			  numpy.array(list("TAGAATCGCTACATAGACGCGCGCTCGCCGCGCTCGATAAGCTACGAACACGATTTTTTA")),
-			  numpy.array(list("GATAGCTACGACTACGCGACTCACGCGCGCGCTCCGCATCAGACACGAATATAGATAAGATATTTTTT")) ]
+	      numpy.array(list("TAGAATCGCTACATAGACGCGCGCTCGCCGCGCTCGATAAGCTACGAACACGATTTTTTA")),
+	      numpy.array(list("GATAGCTACGACTACGCGACTCACGCGCGCGCTCCGCATCAGACACGAATATAGATAAGATATTTTTT")) ]
 
 
 # Print the distributions before training
