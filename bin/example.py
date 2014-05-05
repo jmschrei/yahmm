@@ -35,7 +35,7 @@ model.bake()
 sequence = model.sample()
 print sequence
 print
-print model.forward(sequence)[ len(model.states), model.end_index ]
+print model.forward(sequence)[ len(sequence), model.end_index ]
 print
 print model.backward(sequence)[0,model.start_index]
 print
