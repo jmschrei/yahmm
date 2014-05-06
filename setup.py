@@ -23,11 +23,12 @@ else:
 
 setup(
     name='yahmm',
-    version='0.1.1',
+    version='0.1.2',
     author='Adam Novak, Jacob Schreiber',
     author_email='anovak1@ucsc.edu, jmschreiber91@gmail.com',
     packages=['yahmm'],
-    scripts=['bin/example.py'],
+    scripts=['examples/example.py', 'examples/rainy_sunny_hmm.py', 
+        'examples/tied_state_hmm.py'],
     url='http://pypi.python.org/pypi/yahmm/',
     license='LICENSE.txt',
     description='HMM package which you build node by node and edge by edge.',

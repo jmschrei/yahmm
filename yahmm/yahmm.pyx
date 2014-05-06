@@ -1,4 +1,3 @@
-#!/usr/bin/env python2.7
 # yahmm.py: Yet Another Hidden Markov Model library
 # Contact: Jacob Schreiber ( jmschreiber91@gmail.com )
 #          Adam Novak ( anovak1@ucsc.edu )
@@ -1766,7 +1765,7 @@ cdef class Model(object):
 		# take place.
 
 		self.tied = numpy.zeros(( self.silent_start, self.silent_start ),
-			dtype=numpy.int )
+			dtype=numpy.int32 )
 
 		# Go through and see if the underlying distribution objects are the
 		# same object.
@@ -1782,13 +1781,13 @@ cdef class Model(object):
 		self.transition_log_probabilities = numpy.zeros((len(self.states), 
 			len(self.states))) + float("-inf")
 		self.in_transitions = numpy.zeros( len(self.graph.edges()), 
-			dtype=numpy.int ) - 1
+			dtype=numpy.int32 ) - 1
 		self.in_edge_count = numpy.zeros( len(self.states)+1, 
-			dtype=numpy.int ) 
+			dtype=numpy.int32 ) 
 		self.out_transitions = numpy.zeros( len(self.graph.edges()), 
-			dtype=numpy.int ) - 1
+			dtype=numpy.int32 ) - 1
 		self.out_edge_count = numpy.zeros( len(self.states)+1, 
-			dtype=numpy.int ) 
+			dtype=numpy.int32 ) 
 
 		# Now we need to find a way of storing in-edges for a state in a manner
 		# that can be called in the cythonized methods below. This is basically
@@ -1807,8 +1806,10 @@ cdef class Model(object):
 			self.out_edge_count[ indices[a]+1 ] += 1
 
 		# Take the cumulative sum so that we can associat
-		self.in_edge_count = numpy.cumsum( self.in_edge_count )
-		self.out_edge_count = numpy.cumsum( self.out_edge_count )
+		self.in_edge_count = numpy.cumsum(self.in_edge_count, 
+            dtype=numpy.int32)
+		self.out_edge_count = numpy.cumsum(self.out_edge_count, 
+            dtype=numpy.int32 )
 
 		# Now we go through the edges again in order to both fill in the
 		# transition probability matrix, and also to store the indices sorted

@@ -1,2 +1,3 @@
 v0.1.0, 4/28/2014 -- Initial commit
 v0.1.1, 4/28/2014 -- Documentation and examples provided
+v0.1.2, 5/5/2013 -- Changed instances of dtype=numpy.int to dtype=numpy.int32, as other int types are not properly recognized as integers on Unix machines, but as shorts or longs. 
