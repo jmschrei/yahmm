@@ -12,7 +12,8 @@ Implements the forwards, backwards, forward-backward, and Viterbi algorithms,
 and training by both Baum-Welch and Viterbi algorithms.
 
 Silent states are accounted for, but loops containing all silent states are
-prohibited.
+prohibited. Tied states are also implemented, and handled appropriately in
+the training of models.
 
 For our examples here we're going to make the random number generator 
 deterministic:
@@ -175,7 +176,7 @@ aligning the remainder of the sequence till the end.
  [-2.3507983  -2.3507983         -inf -2.12765475]
  [-1.60943791 -1.60943791  0.                -inf]]
 
->>> model.backward(sequence)[ 0, model.start ]
+>>> model.backward(sequence)[ 0, model.start_index ]
 -5.0835566645
 ```
 
