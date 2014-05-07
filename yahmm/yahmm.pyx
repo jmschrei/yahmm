@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 # yahmm.py: Yet Another Hidden Markov Model library
 # Contact: Jacob Schreiber ( jmschreiber91@gmail.com )
 #          Adam Novak ( anovak1@ucsc.edu )
@@ -27,68 +28,10 @@ cdef inline double _log ( double x ):
 	'''
 	return clog( x ) if x > 0 else NEGINF
 
-cdef inline double max( double [:] values ):
-	'''
-	Return the maximum element in an array,
-	'''
-
-	cdef int i = 0, n = len( values )
-	cdef double maximum = NEGINF
-
-	for i in xrange( n ):
-		if values[i] > maximum:
-			maximum = values[i]
-
-	return maximum
-
-cdef inline double min( double [:] values ):
-	'''
-	Return the minimum element in an array.
-	'''
-
-	cdef int i = 0, n = len( values )
-	cdef double minimum = INF
-
-	for i in xrange( n ):
-		if values[i] < minimum:
-			minimum = values[i]
-
-	return minimum
-
-cdef inline double two_max( double a, double b ): return a if a > b else b
-cdef inline double two_min( double a, double b ): return a if a < b else b
-
-cdef inline double sum( double [:] values ):
-	'''
-	Calculate the sum of an array quickly.
-	'''
-
-	cdef int i = 0, n = len( values )
-	cdef double s = 0
-
-	for i in xrange( n ):
-		s = s + values[i]
-
-	return s
-
-cdef inline double [:] vector_add( double[:] values, offset ):
-	'''
-	Apply an offset to an array.
-	'''
-
-	cdef int i = 0, n = len( values )
-
-	for i in xrange( n ):
-		values[i] = values[i] + offset
-
-	return values
-
 cdef inline double pair_lse( double x, double y ):
-	if x == INF:
+	if x + y == INF:
 		return INF
-	if y == INF:
-		return INF
-	return clog( cexp(x)+cexp(y) )
+	return clog( cexp(x) + cexp(y) )
 
 def log(value):
 	"""
@@ -1765,7 +1708,7 @@ cdef class Model(object):
 		# take place.
 
 		self.tied = numpy.zeros(( self.silent_start, self.silent_start ),
-			dtype=numpy.int32 )
+			dtype=numpy.int )
 
 		# Go through and see if the underlying distribution objects are the
 		# same object.
@@ -1781,13 +1724,13 @@ cdef class Model(object):
 		self.transition_log_probabilities = numpy.zeros((len(self.states), 
 			len(self.states))) + float("-inf")
 		self.in_transitions = numpy.zeros( len(self.graph.edges()), 
-			dtype=numpy.int32 ) - 1
+			dtype=numpy.int ) - 1
 		self.in_edge_count = numpy.zeros( len(self.states)+1, 
-			dtype=numpy.int32 ) 
+			dtype=numpy.int ) 
 		self.out_transitions = numpy.zeros( len(self.graph.edges()), 
-			dtype=numpy.int32 ) - 1
+			dtype=numpy.int ) - 1
 		self.out_edge_count = numpy.zeros( len(self.states)+1, 
-			dtype=numpy.int32 ) 
+			dtype=numpy.int ) 
 
 		# Now we need to find a way of storing in-edges for a state in a manner
 		# that can be called in the cythonized methods below. This is basically
@@ -1806,10 +1749,8 @@ cdef class Model(object):
 			self.out_edge_count[ indices[a]+1 ] += 1
 
 		# Take the cumulative sum so that we can associat
-		self.in_edge_count = numpy.cumsum(self.in_edge_count, 
-            dtype=numpy.int32)
-		self.out_edge_count = numpy.cumsum(self.out_edge_count, 
-            dtype=numpy.int32 )
+		self.in_edge_count = numpy.cumsum( self.in_edge_count )
+		self.out_edge_count = numpy.cumsum( self.out_edge_count )
 
 		# Now we go through the edges again in order to both fill in the
 		# transition probability matrix, and also to store the indices sorted
@@ -1921,12 +1862,14 @@ cdef class Model(object):
 		cdef State s
 		cdef Distribution d
 		cdef int [:] in_edges = self.in_edge_count
+		cdef double [:] c
 
 		# Initialize the DP table. Each entry i, k holds the log probability of
 		# emitting i symbols and ending in state k, starting from the start
 		# state.
 		f = cvarray( shape=(n+1, m), itemsize=D_SIZE, format='d' )
-		
+		c = numpy.zeros( (n+1) )
+
 		# Initialize the emission table, which contains the probability of
 		# each entry i, k holds the probability of symbol i being emitted
 		# by state k 
@@ -1941,7 +1884,7 @@ cdef class Model(object):
 		# We must start in the start state, having emitted 0 symbols        
 		for i in xrange(m):
 			f[0, i] = NEGINF
-		f[0, self.start_index] = 0
+		f[0, self.start_index] = 0.
 
 		for l in xrange( self.silent_start, m ):
 			# Handle transitions between silent states before the first symbol
@@ -2007,7 +1950,7 @@ cdef class Model(object):
 			for l in xrange( self.silent_start, m ):
 				# Now the second pass through silent states, where we account
 				# for transitions between silent states.
-				
+
 				# This holds the log total transition probability in from 
 				# all current-step silent states that can have transitions into 
 				# this state.
@@ -2026,12 +1969,28 @@ cdef class Model(object):
 				# Add the previous partial result and update the table entry
 				f[i+1, l] = pair_lse( f[i+1, l], log_probability )
 
+			# Now calculate the normalizing weight for this row, as described
+			# here: http://www.cs.sjsu.edu/~stamp/RUA/HMM.pdf
+			for l in xrange( m ):
+				c[i+1] += cexp( f[i+1, l] )
+
+			# Convert to log space, and subtract, instead of invert and multiply
+			c[i+1] = clog( c[i+1] )
+			for l in xrange( m ):
+				f[i+1, l] -= c[i+1]
+
+		# Go through and recalculate every observation based on the sum of the
+		# normalizing weights.
+		for i in xrange( n+1 ):
+			for l in xrange( m ):
+				for k in xrange( i+1 ):
+					f[i, l] += c[k]
+
 		# Save the table for future use
 		self.f = f
 		# Now the DP table is filled in
 		# Return the entire table
 		return f
-
 
 	def backward( self, sequence ):
 		'''
@@ -2065,11 +2024,13 @@ cdef class Model(object):
 		cdef State s
 		cdef Distribution d
 		cdef int [:] out_edges = self.out_edge_count
+		cdef double [:] c
 
 		# Initialize the DP table. Each entry i, k holds the log probability of
 		# emitting the remaining len(sequence) - i symbols and ending in the end
 		# state, given that we are in state k.
 		b = cvarray( shape=(n+1, m), itemsize=D_SIZE, format='d' )
+		c = numpy.zeros( (n+1) )
 
 		# Initialize the emission table, which contains the probability of
 		# each entry i, k holds the probability of symbol i being emitted
@@ -2230,6 +2191,24 @@ cdef class Model(object):
 				# get from here to the end, so we can fill in the table entry.
 				b[i, k] = log_probability
 
+			# Now calculate the normalizing weight for this row, as described
+			# here: http://www.cs.sjsu.edu/~stamp/RUA/HMM.pdf
+			for l in xrange( m ):
+				c[i] += cexp( b[i, l] )
+
+			# Convert to log space, and subtract, instead of invert and multiply
+			c[i] = clog( c[i] )
+			for l in xrange( m ):
+				b[i, l] -= c[i]
+
+		# Go through and recalculate every observation based on the sum of the
+		# normalizing weights.
+		for ir in xrange( n+1 ):
+			i = n - ir - 1
+			for l in xrange( m ):
+				for k in xrange( i-1, n+1 ):
+					b[i, l] += c[k]
+				
 
 		# Save the DP table for future use
 		self.b = b
@@ -2852,6 +2831,7 @@ cdef class Model(object):
 		cdef double log_score, log_sequence_probability, weight
 		cdef int k, i, l, m = len( self.states ), n, x=0, observation=0
 		cdef object symbol
+		cdef double [:] c
 
 		transition_log_probabilities = self.transition_log_probabilities 
 		# Find the expected number of transitions between each pair of states, 
@@ -2880,6 +2860,7 @@ cdef class Model(object):
 
 			# Calculate the emission table
 			e = numpy.zeros(( n, self.silent_start )) 
+			c = numpy.zeros( (n+1 ) )
 			for k in xrange( n ):
 				for i in xrange( self.silent_start ):
 					e[k, i] = self.states[i].distribution.log_probability( sequence[k] )
