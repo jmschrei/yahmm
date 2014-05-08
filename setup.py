@@ -23,7 +23,7 @@ else:
 
 setup(
     name='yahmm',
-    version='0.1.2',
+    version='0.1.3',
     author='Adam Novak, Jacob Schreiber',
     author_email='anovak1@ucsc.edu, jmschreiber91@gmail.com',
     packages=['yahmm'],
@@ -32,7 +32,6 @@ setup(
     url='http://pypi.python.org/pypi/yahmm/',
     license='LICENSE.txt',
     description='HMM package which you build node by node and edge by edge.',
-    #long_description=open('README.txt').read(),
     cmdclass=cmdclass,
     ext_modules=ext_modules,
     install_requires=[

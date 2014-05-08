@@ -1,0 +1,15 @@
+ExampleModel 4
+ExampleModel-end *
+ExampleModel-start *
+normal
+NormalDistribution 0 2
+uniform
+UniformDistribution 0.0 1.0
+ExampleModel-start normal 0.5
+ExampleModel-start uniform 0.5
+normal ExampleModel-end 0.2
+normal normal 0.4
+normal uniform 0.4
+uniform ExampleModel-end 0.2
+uniform normal 0.4
+uniform uniform 0.4

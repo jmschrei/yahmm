@@ -22,16 +22,31 @@ DEF NEGINF = float("-inf")
 DEF INF = float("inf")
 DEF SQRT_2_PI = 2.50662827463
 
+REGISTRY = { 'NormalDistribution' : NormalDistribution,
+			 'UniformDistribution' : UniformDistribution,
+			 'ExponentialDistribution': ExponentialDistribution,
+			 'GammaDistribution' : GammaDistribution,
+			 'InverseGammaDistribution' : InverseGammaDistribution,
+			 'DiscreteDistribution' : DiscreteDistribution,
+			 'LambdaDistribution' : LambdaDistribution,
+			 'GaussianKernelDensity' : GaussianKernelDensity,
+			 'UniformKernelDensity' : UniformKernelDensity,
+			 'TriangleKernelDensity' : TriangleKernelDensity,
+			 'MixtureDistribution' : MixtureDistribution }
+
 cdef inline double _log ( double x ):
-	'''
-	Cython wrapper for C log function.
-	'''
 	return clog( x ) if x > 0 else NEGINF
 
 cdef inline double pair_lse( double x, double y ):
-	if x + y == INF:
+	if x == INF or y == INF:
 		return INF
-	return clog( cexp(x) + cexp(y) )
+	if x == NEGINF:
+		return y
+	if y == NEGINF:
+		return x
+	if x > y:
+		return x + clog( cexp( y-x ) + 1 )
+	return y + clog( cexp( x-y ) + 1 )
 
 def log(value):
 	"""
@@ -72,20 +87,8 @@ cdef class Distribution(object):
 	not contain newlines or spaces.
 	"""
 
-	cdef str name
-	cdef list parameters
-
-	property name:
-		def __get__( self ):
-			return self.name
-		def __set__( self, name ):
-			self.name = name
-
-	property parameters:
-		def __get__( self ):
-			return self.parameters
-		def __set__( self, parameters ):
-			self.parameters = parameters
+	cdef public str name
+	cdef public list parameters
 
 	property points:
 		def __get__( self ):
@@ -112,6 +115,7 @@ cdef class Distribution(object):
 
 		self.name = "Distribution"
 		self.parameters = []
+		self.distributions = {}
 		
 	def copy( self ):
 		"""
@@ -158,27 +162,8 @@ cdef class Distribution(object):
 		
 		# Format is name of distribution in distribution lookup table, and then
 		# all the parameters
-		stream.write("{} {}\n".format(type(self).name, 
+		stream.write("{} {}\n".format(self.name, 
 			" ".join(map(repr, self.parameters))))
-	
-	# Static stuff
-	
-	"""
-	All distributions need to be registered in this dict from name to class. 
-	That way, when we try to read an HMM from a file, we can construct all its 
-	distributions.
-	"""
-	distributions = {}
-	
-	@classmethod
-	def register(cls):
-		"""
-		Register derived the class this is called on (cls) to be used to  
-		construct distributions that have its name, when reading distributions 
-		from a stream.
-		"""
-		
-		Distribution.distributions[cls.name] = cls
 			
 	@staticmethod
 	def read(stream):
@@ -191,7 +176,6 @@ cdef class Distribution(object):
 		
 		# Get a line from the stream
 		line = stream.readline()
-		
 		if line == "":
 			# EoF
 			raise EOFError("EoF encountered wile reading distribution.")
@@ -199,12 +183,11 @@ cdef class Distribution(object):
 		# Break it into parts. The first part is the name of the distribution 
 		# and the other parts are parameters.    
 		parts = line.strip().split()
-		
-		if not Distribution.distributions.has_key(parts[0]):
+		if not REGISTRY.has_key(parts[0]):
 			raise Exception("Unknown distribution: {}".format(parts[0]))
 		
 		# Get the class to use
-		distribution_class = Distribution.distributions[parts[0]]
+		distribution_class = REGISTRY[parts[0]]
 		
 		# Make a list of float parameters
 		parameters = [float(s) for s in parts[1:]]
@@ -273,9 +256,6 @@ cdef class UniformDistribution(Distribution):
 		# Weights don't matter for this
 		self.parameters[0] = numpy.min(items)
 		self.parameters[1] = numpy.max(items)
-
-# Register the UniformDistribution
-UniformDistribution.register()
 
 cdef class NormalDistribution(Distribution):
 	"""
@@ -387,9 +367,6 @@ cdef class NormalDistribution(Distribution):
 		# Set the parameters
 		self.parameters = [mean, std]
 
-# Register the NormalDistribution
-NormalDistribution.register()
-
 cdef class ExponentialDistribution(Distribution):
 	"""
 	Represents an exponential distribution on non-negative floats.
@@ -451,9 +428,6 @@ cdef class ExponentialDistribution(Distribution):
 		
 		# Update parameters
 		self.parameters[0] = 1.0 / weighted_mean
-		
-# Register the exponential distribution for deserialization
-ExponentialDistribution.register()
 
 cdef class GammaDistribution(Distribution):
 	"""
@@ -594,8 +568,6 @@ cdef class GammaDistribution(Distribution):
 
 		# Set the estimated parameters
 		self.parameters = [shape, rate]    
-		
-GammaDistribution.register()
 
 cdef class InverseGammaDistribution(GammaDistribution):
 	"""
@@ -657,9 +629,6 @@ cdef class InverseGammaDistribution(GammaDistribution):
 		# Fit the gamma distribution on the inverted items.
 		super(InverseGammaDistribution, self).from_sample(1.0 / 
 			numpy.asarray(items), weights=weights)
-		
-# Sign up for deserialization
-InverseGammaDistribution.register()
 
 cdef class DiscreteDistribution(Distribution):
 	"""
@@ -730,9 +699,6 @@ cdef class DiscreteDistribution(Distribution):
 
 		self.parameters = [ characters ]
 
-# Register the DiscreteDistribution
-DiscreteDistribution.register()
-
 cdef class LambdaDistribution(Distribution):
 	"""
 	A distribution which takes in an arbitrary lambda function, and returns
@@ -763,10 +729,6 @@ cdef class LambdaDistribution(Distribution):
 		"""
 
 		return self.parameters[0](symbol)
-			
-
-# Register the UniformDistribution
-LambdaDistribution.register()
 
 cdef class GaussianKernelDensity( Distribution ):
 	"""
@@ -850,9 +812,6 @@ cdef class GaussianKernelDensity( Distribution ):
 			self.weights = numpy.array(weights) / numpy.sum(weights)
 		else:
 			self.weights = numpy.ones( n ) / n 
-
-# Register the GaussianKernelDensity
-GaussianKernelDensity.register() 
 
 cdef class UniformKernelDensity( Distribution ):
 	"""
@@ -939,9 +898,6 @@ cdef class UniformKernelDensity( Distribution ):
 		else:
 			self.weights = numpy.ones( n ) / n 
 
-# Register the UniformKernelDensity
-UniformKernelDensity.register()
-
 cdef class TriangleKernelDensity( Distribution ):
 	"""
 	A quick way of storing points to represent an Exponential kernel density in
@@ -1027,9 +983,6 @@ cdef class TriangleKernelDensity( Distribution ):
 		else:
 			self.weights = numpy.ones( n ) / n 
 
-# Register the TriangleKernelDensity
-TriangleKernelDensity.register()
-
 cdef class MixtureDistribution( Distribution ):
 	"""
 	Allows you to create an arbitrary mixture of distributions. There can be
@@ -1038,7 +991,6 @@ cdef class MixtureDistribution( Distribution ):
 	"""
 
 	cdef double [:] weights
-	cdef list distributions
 
 	def __init__( self, distributions, weights=None ):
 		"""
@@ -1556,16 +1508,18 @@ cdef class Model(object):
 		# Move the end to other.end
 		self.end = other.end
 
-	def draw(self):
+	def draw(self, **kwargs):
 		"""
 		Draw this model's graph using NetworkX and matplotlib. Blocks until the
 		window displaying the graph is closed.
 		
 		Note that this relies on networkx's built-in graphing capabilities (and 
 		not Graphviz) and thus can't draw self-loops.
+
+		See networkx.draw_networkx() for the keywords you can pass in.
 		"""
 		
-		networkx.draw(self.graph)
+		networkx.draw(self.graph, **kwargs)
 		pyplot.show()
 		   
 	def bake( self, verbose=False, merge="all" ): 
@@ -1589,7 +1543,54 @@ cdef class Model(object):
 		silent or character-generating either. This may not be desirable as
 		some silent states are useful for bookkeeping purposes.
 		"""
+
+		# Go through the model and delete any nodes which have no edges leading
+		# to it, or edges leading out of it. This gets rid of any states with
+		# no edges in or out, as well as recursively removing any chains which
+		# are impossible for the viterbi path to touch.
+		self.in_edge_count = numpy.zeros( len( self.graph.nodes() ), 
+			dtype=numpy.int32 ) 
+		self.out_edge_count = numpy.zeros( len( self.graph.nodes() ), 
+			dtype=numpy.int32 )
 		
+		merge = merge.lower()
+		while merge == 'all':
+			merge_count = 0
+
+			# Reindex the states based on ones which are still there
+			prestates = self.graph.nodes()
+			indices = { prestates[i]: i for i in xrange( len( prestates ) ) }
+
+			# Go through all the edges, summing in and out edges
+			for a, b in self.graph.edges():
+				self.out_edge_count[ indices[a] ] += 1
+				self.in_edge_count[ indices[b] ] += 1
+				
+			# Go through each state, and if either in or out edges are 0,
+			# remove the edge.
+			for i in xrange( len( prestates ) ):
+				if prestates[i] is self.start or prestates[i] is self.end:
+					continue
+
+				if self.in_edge_count[i] == 0:
+					merge_count += 1
+					self.graph.remove_node( prestates[i] )
+
+					if verbose:
+						print "Orphan state {} removed due to no edges \
+							leading to it".format(prestates[i].name )
+
+				elif self.out_edge_count[i] == 0:
+					merge_count += 1
+					self.graph.remove_node( prestates[i] )
+
+					if verbose:
+						print "Orphan state {} removed due to no edges \
+							leaving it".format(prestates[i].name )
+
+			if merge_count == 0:
+				break
+
 		# Go through the model checking to make sure out edges sum to 1.
 		# Normalize them to 1 if this is not the case.
 		for state in self.graph.nodes():
@@ -1613,7 +1614,6 @@ cdef class Model(object):
 		# Automatically merge adjacent silent states attached by a single edge
 		# of 1.0 probability, as that adds nothing to the model. Traverse the
 		# edges looking for 1.0 probability edges between silent states.
-		merge = merge.lower()
 		while merge in ['all', 'partial']:
 			# Repeatedly go through the model until no merges take place.
 			merge_count = 0
@@ -1664,9 +1664,10 @@ cdef class Model(object):
 		for a, b, e in self.graph.edges( data=True ):
 			for x, y, d in self.graph.edges( data=True ):
 				if a is y and b is x and a.is_silent() and b.is_silent():
-					raise SyntaxError( "Cannot have loops between silent \
-						states. Loop detected between state {} - {}".format(
-							a.name, b.name ) )
+					print "Loop: {} - {}".format( a.name, b.name )
+					#raise SyntaxError( "Cannot have loops between silent \
+					#	states. Loop detected between state {} - {}".format(
+					#		a.name, b.name ) )
 
 		states = self.graph.nodes()
 		n, m = len(states), len(self.graph.edges())
@@ -1708,7 +1709,7 @@ cdef class Model(object):
 		# take place.
 
 		self.tied = numpy.zeros(( self.silent_start, self.silent_start ),
-			dtype=numpy.int )
+			dtype=numpy.int32 )
 
 		# Go through and see if the underlying distribution objects are the
 		# same object.
@@ -1724,13 +1725,13 @@ cdef class Model(object):
 		self.transition_log_probabilities = numpy.zeros((len(self.states), 
 			len(self.states))) + float("-inf")
 		self.in_transitions = numpy.zeros( len(self.graph.edges()), 
-			dtype=numpy.int ) - 1
+			dtype=numpy.int32 ) - 1
 		self.in_edge_count = numpy.zeros( len(self.states)+1, 
-			dtype=numpy.int ) 
+			dtype=numpy.int32 ) 
 		self.out_transitions = numpy.zeros( len(self.graph.edges()), 
-			dtype=numpy.int ) - 1
+			dtype=numpy.int32 ) - 1
 		self.out_edge_count = numpy.zeros( len(self.states)+1, 
-			dtype=numpy.int ) 
+			dtype=numpy.int32 ) 
 
 		# Now we need to find a way of storing in-edges for a state in a manner
 		# that can be called in the cythonized methods below. This is basically
@@ -1749,8 +1750,10 @@ cdef class Model(object):
 			self.out_edge_count[ indices[a]+1 ] += 1
 
 		# Take the cumulative sum so that we can associat
-		self.in_edge_count = numpy.cumsum( self.in_edge_count )
-		self.out_edge_count = numpy.cumsum( self.out_edge_count )
+		self.in_edge_count = numpy.cumsum(self.in_edge_count, 
+            dtype=numpy.int32)
+		self.out_edge_count = numpy.cumsum(self.out_edge_count, 
+            dtype=numpy.int32 )
 
 		# Now we go through the edges again in order to both fill in the
 		# transition probability matrix, and also to store the indices sorted
@@ -1774,7 +1777,6 @@ cdef class Model(object):
 			self.in_transitions[ start ] = indices[a]
 
 			# Now do the same for out edges
-
 			start = self.out_edge_count[ indices[a] ]
 
 			while self.out_transitions[ start ] != -1:
@@ -1785,9 +1787,17 @@ cdef class Model(object):
 			self.out_transitions[ start ] = indices[b]  
 
 		# This holds the index of the start state
-		self.start_index = indices[self.start]
+		try:
+			self.start_index = indices[self.start]
+		except KeyError:
+			raise SyntaxError( "Model.start has been deleted, leaving the \
+				model with no start. Please ensure it has a start." )
 		# And the end state
-		self.end_index = indices[self.end]
+		try:
+			self.end_index = indices[self.end]
+		except KeyError:
+			raise SyntaxError( "Model.end has been deleted, leaving the \
+				model with no end. Please ensure it has an end." )
 	
 	def sample(self):
 		"""
@@ -1837,8 +1847,29 @@ cdef class Model(object):
 	def forward( self, sequence ):
 		'''
 		Python wrapper for the forward algorithm, calculating probability by
-		going forward through a sequence. Returns the full forward DP matrix,
-		in addition to a 
+		going forward through a sequence. Returns the full forward DP matrix.
+		Each index i, j corresponds to the sum-of-all-paths log probability
+		of starting at the beginning of the sequence, and aligning observations
+		to hidden states in such a manner that observation i was aligned to
+		hidden state j. Uses row normalization to dynamically scale each row
+		to prevent underflow errors.
+
+		If the sequence is impossible, will return a matrix of nans.
+
+		input
+			sequence: a list (or numpy array) of observations
+
+		output
+			A n-by-m matrix of floats, where n = len( sequence ) and
+			m = len( self.states ). This is the DP matrix for the
+			forward algorithm.
+
+		See also: 
+			- Silent state handling taken from p. 71 of "Biological
+		Sequence Analysis" by Durbin et al., and works for anything which
+		does not have loops of silent states.
+			- Row normalization technique explained by 
+		http://www.cs.sjsu.edu/~stamp/RUA/HMM.pdf on p. 14.
 		'''
 
 		return numpy.array( self._forward( numpy.array( sequence ) ) )
@@ -1849,10 +1880,6 @@ cdef class Model(object):
 		of each segment being in each hidden state. 
 		
 		Initializes self.f, the forward algorithm DP table.
-		
-		Silent state handling stolen from p. 71 of "Biological Sequence 
-		Analysis" by Durbin et al., and works for anything that doesn't have 
-		loops of silent states.
 		"""
 
 		cdef unsigned int D_SIZE = sizeof( double )
@@ -1994,9 +2021,29 @@ cdef class Model(object):
 
 	def backward( self, sequence ):
 		'''
-		Python wrapper for the backwards algorithm, where hidden states are
-		assigned to the sequence going from the end of the sequence to the
-		beginning.
+		Python wrapper for the backward algorithm, calculating probability by
+		going backward through a sequence. Returns the full forward DP matrix.
+		Each index i, j corresponds to the sum-of-all-paths log probability
+		of starting with observation i aligned to hidden state j, and aligning
+		observations to reach the end. Uses row normalization to dynamically 
+		scale each row to prevent underflow errors.
+
+		If the sequence is impossible, will return a matrix of nans.
+
+		input
+			sequence: a list (or numpy array) of observations
+
+		output
+			A n-by-m matrix of floats, where n = len( sequence ) and
+			m = len( self.states ). This is the DP matrix for the
+			backward algorithm.
+
+		See also: 
+			- Silent state handling is "essentially the same" according to
+		Durbin et al., so they don't bother to explain *how to actually do it*.
+		Algorithm worked out from first principles.
+			- Row normalization technique explained by 
+		http://www.cs.sjsu.edu/~stamp/RUA/HMM.pdf on p. 14.
 		'''
 
 		return numpy.array( self._backward( numpy.array( sequence ) ) )
@@ -2007,14 +2054,6 @@ cdef class Model(object):
 		sequence. Sequence is a container of symbols.
 		
 		Initializes self.b, the backward algorithm DP table.
-		
-		Silent state handling is "essentially the same" according to Durbin et
-		al., so they don't bother to explain *how to actually do it*. 
-		
-		I've worked it out from first principles. TODO: there is probably a
-		better order so we don't have to repeat the "check all subsequent non-
-		silent states" loop for both silent and non-silent states on the current
-		step.
 		"""
 
 		cdef unsigned int D_SIZE = sizeof( double )
@@ -2204,12 +2243,11 @@ cdef class Model(object):
 		# Go through and recalculate every observation based on the sum of the
 		# normalizing weights.
 		for ir in xrange( n+1 ):
-			i = n - ir - 1
+			i = n - ir
 			for l in xrange( m ):
-				for k in xrange( i-1, n+1 ):
+				for k in xrange( i, n+1 ):
 					b[i, l] += c[k]
 				
-
 		# Save the DP table for future use
 		self.b = b
 
@@ -2219,7 +2257,33 @@ cdef class Model(object):
 
 	def forward_backward( self, sequence ):
 		"""
-		Implements the forward-backward algorithm.
+		Implements the forward-backward algorithm. This is the sum-of-all-paths
+		log probability that you start at the beginning of the sequence, align
+		observation i to silent state j, and then continue on to the end.
+		Simply, it is the probability of emitting the observation given the
+		state and then transitioning one step.
+
+		If the sequence is impossible, will return (None, None)
+
+		input
+			sequence: a list (or numpy array) of observations
+
+		output
+			A tuple of the estimated log transition probabilities, and
+			the DP matrix for the FB algorithm. 
+
+			* The estimated log transition probabilities are a m-by-m 
+			matrix where index i, j indicates the log probability of 
+			transitioning from state i to state j.
+
+			* The DP matrix for the FB algorithm contains the sum-of-all-paths
+			probability as described above.
+
+		See also: 
+			- Forward and backward algorithm implementations. A comprehensive
+			description of the forward, backward, and forward-background
+			algorithm is here: 
+			http://en.wikipedia.org/wiki/Forward%E2%80%93backward_algorithm
 		"""
 
 		return self._forward_backward( numpy.array( sequence ) )
@@ -2247,8 +2311,8 @@ cdef class Model(object):
 			
 		# Is the sequence impossible? If so, don't bother calculating any more.
 		if log_sequence_probability == NEGINF:
-			print "Warning: Sequence is impossible."
-			return NEGINF
+			print( "Warning: Sequence is impossible." )
+			return ( None, None )
 			
 		# Fill in self.b too
 		self.backward( sequence )
@@ -2355,21 +2419,33 @@ cdef class Model(object):
 
 	def viterbi(self, sequence):
 		'''
-		A python wrapper for the viterbi algorithm, finding the highest
-		probability path from the start of the hmm to the end given
-		a sequence. 
+		Run the Viterbi algorithm on the sequence given the model. This finds
+		the ML path of hidden states given the sequence. Returns a tuple of the
+		log probability of the ML path, or (-inf, None) if the sequence is
+		impossible under the model. If a path is returned, it is a list of
+		tuples of the form (sequence index, state object).
+
+		This is fundamentally the same as the forward algorithm using max
+		instead of sum, except the traceback is more complicated, because
+		silent states in the current step can trace back to other silent states
+		in the current step as well as states in the previous step.
+
+		input
+			sequence: a list (or numpy array) of observations
+
+		output
+			A tuple of the log probabiliy of the ML path, and the sequence of
+			hidden states that comprise the ML path.
+
+		See also: 
+			- Viterbi implementation described well in the wikipedia article
+			http://en.wikipedia.org/wiki/Viterbi_algorithm
 		'''
 
 		return self._viterbi( numpy.array( sequence ) )
 
 	cdef tuple _viterbi(self, numpy.ndarray sequence):
-		"""
-		Run the Viterbi algorithm which finds the maximum-likelihood path that
-		emits the given sequence. Returns either a tuple of the path's
-		likelihood and the path itself, or (-inf, None) if the sequence is
-		impossible under the model. If a path is returned, it is a list of
-		tuples of the form (sequence index, state object).
-		
+		"""		
 		This fills in self.v, the Viterbi algorithm DP table.
 		
 		This is fundamentally the same as the forward algorithm using max
@@ -2741,7 +2817,7 @@ cdef class Model(object):
 		return model
 
 	def train( self, sequences, stop_threshold=1E-9, min_iterations=0,
-		algorithm='baum-welch' ):
+		max_iterations=None, algorithm='baum-welch', verbose=True ):
 		"""
 		Given a list of sequences, performs re-estimation on the model
 		parameters. The two supported algorithms are "baum-welch" and
@@ -2771,12 +2847,12 @@ cdef class Model(object):
 
 		if algorithm.lower() == 'baum-welch':
 			return self._train_baum_welch( sequences, stop_threshold,
-				min_iterations )
+				min_iterations, max_iterations, verbose )
 		if algorithm.lower() == 'viterbi':
 			return self._train_viterbi( sequences )
 
-	def _train_baum_welch(self, sequences, stop_threshold=1E-9, 
-		min_iterations=0 ):
+	def _train_baum_welch(self, sequences, stop_threshold, min_iterations, 
+		max_iterations, verbose ):
 		"""
 		Given a list of sequences, perform Baum-Welch iterative re-estimation on
 		the model parameters.
@@ -2789,6 +2865,9 @@ cdef class Model(object):
 		"""
 
 		sequences = numpy.array( sequences )
+		for i, sequence in enumerate( sequences ):
+			sequences[i] = numpy.array( sequence )
+
 		# What's the current log score?
 		log_score = self._train_once_baum_welch(sequences)
 		# This holds how much we improve each step
@@ -2797,6 +2876,9 @@ cdef class Model(object):
 		# How many iterations of training have we done (counting the first)
 		iteration = 1
 		while improvement > stop_threshold or iteration < min_iterations:
+			if max_iterations and iteration >= max_iterations:
+				break 
+
 			# train again and get the new score
 			new_log_score = self._train_once_baum_welch(sequences)
 			
@@ -2807,7 +2889,8 @@ cdef class Model(object):
 			improvement = new_log_score - log_score
 			log_score = new_log_score
 			
-			print "Training improvement: {}".format(improvement)
+			if verbose:
+				print( "Training improvement: {}".format(improvement) )
 			
 		return log_score
 
@@ -2863,7 +2946,8 @@ cdef class Model(object):
 			c = numpy.zeros( (n+1 ) )
 			for k in xrange( n ):
 				for i in xrange( self.silent_start ):
-					e[k, i] = self.states[i].distribution.log_probability( sequence[k] )
+					e[k, i] = self.states[i].distribution.log_probability(
+						sequence[k] )
 
 			# Get the overall log probability of the sequence, and fill in self.f
 			log_sequence_probability = self.forward(sequence)[n, self.end_index]
@@ -2871,7 +2955,7 @@ cdef class Model(object):
 			# Is the sequence impossible? If so, we can't train on it, so skip 
 			# it
 			if log_sequence_probability == NEGINF:
-				print "Warning: skipped impossible sequence {}".format(sequence)
+				print( "Warning: skipped impossible sequence {}".format(sequence) )
 				continue
 				
 			# Add to the score
@@ -3031,6 +3115,10 @@ cdef class Model(object):
 
 			# Run the viterbi decoding on each observed sequence
 			log_sequence_probability, sequence_path = self.viterbi( sequence )
+
+			if log_sequence_probability[0] == NEGINF:
+				print( "Warning: skipped impossible sequence {}".format(sequence) )
+				continue
 
 			# Filter out silent states, as they are not paired with an
 			# observation
