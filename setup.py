@@ -21,14 +21,18 @@ else:
         Extension("yahmm.yahmm", [ "yahmm/yahmm.c" ], include_dirs=[np.get_include()]),
     ]
 
+script_names = [ 'example.py', 'rainy_sunny_hmm.py', 'tied_states_hmm.py', 
+    'infinite_hmm.py']
+
+scripts = [ "examples/{}".format( name ) for name in script_names ]
+
 setup(
     name='yahmm',
-    version='0.1.3',
+    version='0.1.4',
     author='Adam Novak, Jacob Schreiber',
     author_email='anovak1@ucsc.edu, jmschreiber91@gmail.com',
     packages=['yahmm'],
-    scripts=['examples/example.py', 'examples/rainy_sunny_hmm.py', 
-        'examples/tied_state_hmm.py'],
+    scripts=scripts,
     url='http://pypi.python.org/pypi/yahmm/',
     license='LICENSE.txt',
     description='HMM package which you build node by node and edge by edge.',
