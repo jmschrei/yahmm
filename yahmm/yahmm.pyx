@@ -12,16 +12,18 @@ from cython.view cimport array as cvarray
 from libc.math cimport log as clog, sqrt as csqrt, exp as cexp
 import math, random, collections, itertools as it, sys, bisect, time
 import networkx
-import scipy.stats, scipy.sparse, scipy.special
+import scipy.stats, scipy.sparse, scipy.special, scipy.misc
 
 import numpy
 cimport numpy
 from matplotlib import pyplot
 
+# Define some useful constants
 DEF NEGINF = float("-inf")
 DEF INF = float("inf")
 DEF SQRT_2_PI = 2.50662827463
 
+# Define a mapping of strings to distibution options
 REGISTRY = { 'NormalDistribution' : NormalDistribution,
 			 'UniformDistribution' : UniformDistribution,
 			 'ExponentialDistribution': ExponentialDistribution,
@@ -34,6 +36,7 @@ REGISTRY = { 'NormalDistribution' : NormalDistribution,
 			 'TriangleKernelDensity' : TriangleKernelDensity,
 			 'MixtureDistribution' : MixtureDistribution }
 
+# Useful speed optimized functions
 cdef inline double _log ( double x ):
 	return clog( x ) if x > 0 else NEGINF
 
@@ -48,6 +51,7 @@ cdef inline double pair_lse( double x, double y ):
 		return x + clog( cexp( y-x ) + 1 )
 	return y + clog( cexp( x-y ) + 1 )
 
+# Useful python-based array-intended operations
 def log(value):
 	"""
 	Return the natural log of the given value, or - infinity if the value is 0.
@@ -89,18 +93,8 @@ cdef class Distribution(object):
 
 	cdef public str name
 	cdef public list parameters
-
-	property points:
-		def __get__( self ):
-			return self.points
-		def __set__( self, points ):
-			self.points = points
-
-	property weights:
-		def __get__( self ):
-			return self.weights
-		def __set__( self, weights ):
-			self.weights = weights
+	cdef public numpy.ndarray points
+	cdef public double [:] weights
 
 	def __init__(self):
 		"""
@@ -737,9 +731,6 @@ cdef class GaussianKernelDensity( Distribution ):
 	the sum of the Gaussian distance of the new point from every other point.
 	"""
 
-	cdef double [:] weights
-	cdef numpy.ndarray points
-
 	def __init__( self, points, bandwidth=1, weights=None ):
 		"""
 		Take in points, bandwidth, and appropriate weights. If no weights
@@ -819,9 +810,6 @@ cdef class UniformKernelDensity( Distribution ):
 	one dimension. Takes in points at initialization, and calculates the log of
 	the sum of the Gaussian distances of the new point from every other point.
 	"""
-	
-	cdef double [:] weights
-	cdef numpy.ndarray points
 
 	def __init__( self, points, bandwidth=1, weights=None ):
 		"""
@@ -905,9 +893,6 @@ cdef class TriangleKernelDensity( Distribution ):
 	the sum of the Gaussian distances of the new point from every other point.
 	"""
 
-	cdef double [:] weights
-	cdef numpy.ndarray points
-
 	def __init__( self, points, bandwidth=1, weights=None ):
 		"""
 		Take in points, bandwidth, and appropriate weights. If no weights
@@ -990,8 +975,6 @@ cdef class MixtureDistribution( Distribution ):
 	distributions. Can also specify weights for the distributions.
 	"""
 
-	cdef double [:] weights
-
 	def __init__( self, distributions, weights=None ):
 		"""
 		Take in the distributions and appropriate weights. If no weights
@@ -1046,20 +1029,8 @@ cdef class State(object):
 	transition distribution, because that's stored in the graph edges.
 	"""
 	
-	cdef Distribution distribution
-	cdef str name
-
-	property name:
-		def __get__( self ):
-			return self.name
-		def __set__( self, name ):
-			self.name = name
-
-	property distribution:
-		def __get__( self ):
-			return self.distribution
-		def __set__( self, dist ):
-			self.distribution = dist
+	cdef public Distribution distribution
+	cdef public str name
 
 	def __init__(self, distribution, name=None ):
 		"""
@@ -1335,55 +1306,14 @@ cdef class Model(object):
 	>>> model_b.forward([-0.5, 0.2, 1.2, 0.8])
 	-0.14149956275300468
 	"""
-	cdef str name
-	cdef object start, end, graph
-	cdef list states
+	cdef public str name
+	cdef public object start, end, graph
+	cdef public list states
+	cdef public int start_index, end_index, silent_start
 	cdef double [:,:] f, b, v, transition_log_probabilities
 	cdef int [:] in_edge_count, in_transitions, out_edge_count, out_transitions
-	cdef int start_index, end_index, silent_start
 	cdef int [:,:] tied
-
-	property states:
-		def __get__( self ):
-			return self.states
-		def __set__( self, states ):
-			self.states = states
-
-	property start:
-		def __get__( self ):
-			return self.start
-		def __set__( self, state ):
-			self.start = state
-
-	property start_index:
-		def __get__( self ):
-			return self.start_index
-		def __set__( self, idx ):
-			self.start_index = idx
-
-	property end:
-		def __get__( self ):
-			return self.end
-		def __set__( self, state ):
-			self.end = state
-
-	property end_index:
-		def __get__( self ):
-			return self.end_index
-		def __set__( self, idx ):
-			self.end_index = idx
-
-	property name:
-		def __get__( self ):
-			return self.name
-		def __set__( self, name ):
-			self.name = name
-
-	property graph:
-		def __get__( self ):
-			return self.graph
-		def __set__( self, graph ):
-			self.graph = graph
+	cdef int finite
 
 	def __init__(self, name=None, start=None, end=None):
 		"""
@@ -1455,7 +1385,16 @@ cdef class Model(object):
 		"""
 		
 		return "{}:\n\t{}".format(self.name, "\n\t".join(map(str, self.states)))
-		
+
+	def is_infinite( self ):
+		"""
+		Returns whether or not the HMM is infinite, or finite. This is
+		determined in the bake method, based on if there are any edges to the
+		end state or not. Can only be used after a model is baked.
+		"""
+
+		return self.finite == 0
+
 	def add_state(self, state):
 		"""
 		Adds the given State to the model. It must not already be in the model,
@@ -1749,6 +1688,14 @@ cdef class Model(object):
 			# Increment the total number of edges leaving node a.
 			self.out_edge_count[ indices[a]+1 ] += 1
 
+		# Determine if the model is infinite or not based on the number of edges
+		# to the end state
+
+		if self.in_edge_count[ indices[ self.end ]+1 ] == 0:
+			self.finite = 0
+		else:
+			self.finite = 1
+
 		# Take the cumulative sum so that we can associat
 		self.in_edge_count = numpy.cumsum(self.in_edge_count, 
             dtype=numpy.int32)
@@ -1798,15 +1745,27 @@ cdef class Model(object):
 		except KeyError:
 			raise SyntaxError( "Model.end has been deleted, leaving the \
 				model with no end. Please ensure it has an end." )
-	
-	def sample(self):
+
+	def sample( self, length=None, path=False ):
 		"""
 		Generate a sequence from the model. Returns the sequence generated, as a
-		list of emitted items. The actual path used by the HMM is not returned.
-		
-		If the HMM never reaches the end state, this method will never halt.
-		
-		The model must have been baked first in order to run this method.
+		list of emitted items. The model must have been baked first in order to 
+		run this method.
+
+		If a length is specified and the HMM is infinite (no edges to the
+		end state), then that number of samples will be randomly generated.
+		If the length is specified and the HMM is finite, the method will
+		attempt to generate a prefix of that length. Currently it will force
+		itself to not take an end transition unless that is the only path,
+		making it not a true random sample on a finite model.
+
+		WARNING: If the HMM is infinite, must specify a length to use.
+
+		If path is True, will return a tuple of ( sample, path ), where path is
+		the path of hidden states that the sample took. Otherwise, the method
+		will just return the path. Note that the path length may not be the same
+		length as the samples, as it will return silent states it visited, but
+		they will not generate an emission.
 		"""
 		
 		# First prepare a table of cumulative transition probabilities.
@@ -1814,35 +1773,65 @@ cdef class Model(object):
 		transition_probabilities = exp(self.transition_log_probabilities)
 		
 		# Calculate cumulative transition probabilities
-		cumulative_probabilities = numpy.cumsum(transition_probabilities, 
+		cum_probabilities = numpy.cumsum(transition_probabilities, 
 			axis=1)
 		
 		# This holds the numerical index of the state we are currently in.
 		# Start in the start state
 		state = self.start_index
 		
+		# Record the number of samples
+		n = 0
 		# This holds the emissions
 		emissions = []
-		
+		sequence_path = []
+
 		while state != self.end_index:
 			# Get the object associated with this state
 			state_object = self.states[state]
+
+			# Add the state to the growing path
+			sequence_path.append( state_object )
 			
 			if state_object.distribution is not None:
 				# There's an emission distribution, so sample from it
 				emissions.append(state_object.distribution.sample())
-				
+				n += 1
+
+			# If we've reached the specified length, return the appropriate
+			# values
+			if length and n >= length:
+				return (emissions, sequence_path) if path else emissions
+
 			# What should we pick as our next state?
 			# Generate a random number between 0 and the total probability of 
 			# this state (ought to be 1):
-			sample = random.uniform(0, cumulative_probabilities[state, -1])
+			sample = random.uniform(0, cum_probabilities[state, -1])
 			
+			# Save the last state id we were in
+			last_state = state
+
 			# Find out what state we're supposed to go into using bisect, and go
 			# there
-			state = bisect.bisect(cumulative_probabilities[state, :], sample)
+			state = bisect.bisect(cum_probabilities[state, :], sample)
+
+			# If the user specified a length, and we're not at that length, and
+			# we're in an infinite HMM, we want to avoid going to the end state
+			# if possible. If there is only a single probability 1 end to the
+			# end state we can't avoid it, otherwise go somewhere else.
+			if length and self.finite == 1 and state == self.end_index:
+				# If it's the only transition (log probability of 0), end
+				if self.transition_log_probabilities[last_state, state] == 0:
+					break
+
+				# Else, sample until we find a new one. 
+				while state == self.end_index:
+					sample = random.uniform(0,cum_probabilities[last_state,-1])
+					state = bisect.bisect(cum_probabilities[last_state, :], 
+						sample)
 			
 		# We made it to the end state. Return our emission sequence.
-		return emissions
+		return (emissions, sequence_path) if path else emissions
 
 	def forward( self, sequence ):
 		'''
@@ -2076,11 +2065,6 @@ cdef class Model(object):
 		# by state k 
 		e = cvarray( shape=(n,self.silent_start), itemsize=D_SIZE, format='d' )
 
-		# We must end in the end state, having emitted len(sequence) symbols
-		for i in xrange(m):
-			b[n, i] = NEGINF
-		b[n, self.end_index] = 0
-
 		# Calculate the emission table
 		for k in xrange( n ):
 			for i in xrange( self.silent_start ):
@@ -2089,7 +2073,20 @@ cdef class Model(object):
 				log_probability = d.log_probability( sequence[k] )
 				e[k, i] = log_probability
 
+		# We must end in the end state, having emitted len(sequence) symbols
+		if self.finite == 1:
+			for i in xrange(m):
+				b[n, i] = NEGINF
+			b[n, self.end_index] = 0
+		else:
+			for i in xrange(self.silent_start):
+				b[n, i] = e[n-1, i]
+			for i in xrange(self.silent_start, m):
+				b[n, i] = NEGINF
+
 		for kr in xrange( m-self.silent_start ):
+			if self.finite == 0:
+				break
 			# Cython arrays cannot go backwards, so modify the loop to account
 			# for this.
 			k = m - kr - 1
@@ -2120,6 +2117,8 @@ cdef class Model(object):
 			b[n, k] = log_probability
 
 		for k in xrange( self.silent_start ):
+			if self.finite == 0:
+				break
 			# Do the non-silent states in the last step, which depend on
 			# current-step silent states.
 			
@@ -2143,6 +2142,8 @@ cdef class Model(object):
 
 		# Now that we're done with the base case, move on to the recurrence
 		for ir in xrange( n ):
+			#if self.finite == 0 and ir == 0:
+			#	continue
 			# Cython xranges cannot go backwards properly, redo to handle
 			# it properly
 			i = n - ir - 1
@@ -2270,7 +2271,9 @@ cdef class Model(object):
 
 		output
 			A tuple of the estimated log transition probabilities, and
-			the DP matrix for the FB algorithm. 
+			the DP matrix for the FB algorithm. The DP matrix has
+			n rows and m columns where n is the number of observations,
+			and m is the number of non-silent states.
 
 			* The estimated log transition probabilities are a m-by-m 
 			matrix where index i, j indicates the log probability of 
@@ -2301,21 +2304,28 @@ cdef class Model(object):
 		# given our data and our current parameters, but allowing the paths 
 		# taken to vary. (Indexed: from, to)
 		cdef double [:,:] expected_transitions = numpy.zeros((m, m))
-		cdef double [:,:] emission_weights = numpy.zeros((n, m))
+		cdef double [:,:] emission_weights = numpy.zeros((n, self.silent_start))
 
-		cdef double log_sequence_probability
+		cdef double log_sequence_probability, sequence_probability_sum
 		cdef double log_transition_emission_probability_sum
 
 		# Get the overall log probability of the sequence, and fill in self.f
-		log_sequence_probability = self.forward( sequence )[n, self.end_index]
-			
+		f = self.forward( sequence )
+		if self.finite == 1:
+			log_sequence_probability = f[ n, self.end_index ]
+		else:
+			log_sequence_probability = NEGINF
+			for i in xrange( self.silent_start ):
+				log_sequence_probability = pair_lse( log_sequence_probability, 
+					f[n, i] )
+		
 		# Is the sequence impossible? If so, don't bother calculating any more.
 		if log_sequence_probability == NEGINF:
 			print( "Warning: Sequence is impossible." )
 			return ( None, None )
 			
 		# Fill in self.b too
-		self.backward( sequence )
+		b = self.backward( sequence )
 			
 		for k in xrange( m ):
 			# For each state we could have come from
@@ -2332,9 +2342,9 @@ cdef class Model(object):
 					# to the end.
 					log_transition_emission_probability_sum = pair_lse( 
 						log_transition_emission_probability_sum, 
-						self.f[i, k] + transition_log_probabilities[k, l] +
+						f[i, k] + transition_log_probabilities[k, l] +
 						self.states[l].distribution.log_probability( 
-							sequence[i] ) + self.b[ i+1, l ] )
+							sequence[i] ) + b[ i+1, l ] )
 
 				# Now divide by probability of the sequence to make it given
 				# this sequence, and add as this sequence's contribution to 
@@ -2360,8 +2370,8 @@ cdef class Model(object):
 					# table row, since no character is being emitted.
 					log_transition_emission_probability_sum = pair_lse( 
 						log_transition_emission_probability_sum, 
-						self.f[i, k] + transition_log_probabilities[k, l] 
-						+ self.b[i, l] )
+						f[i, k] + transition_log_probabilities[k, l] 
+						+ b[i, l] )
 					
 				# Now divide by probability of the sequence to make it given
 				# this sequence, and add as this sequence's contribution to 
@@ -2385,20 +2395,22 @@ cdef class Model(object):
 					# According to http://www1.icsi.berkeley.edu/Speech/
 					# docs/HTKBook/node7_mn.html, we really should divide by
 					# sequence probability.
-					emission_weights[i,k] = self.f[i+1, k] + self.b[i+1, k] - \
+
+					emission_weights[i,k] = f[i+1, k] + b[i+1, k] - \
 						log_sequence_probability
 
 		# Connect the data of tied states, to ensure enough information comes
 		# in to train them.
 		cdef double tied_state_probability_sum
-		for i in xrange( self.silent_start ):
-			tied_state_probability_sum = 0
+		for i in xrange( n ):
 			for j in xrange( self.silent_start ):
-				if self.tied[i, j] == 1:
-					tied_state_probability_sum += emission_weights[j, i]
-			for j in xrange( self.silent_start ):
-				if self.tied[i, j] == 1:
-					emission_weights[j, i] = tied_state_probability_sum
+				tied_state_probability_sum = 0
+				for k in xrange( j, self.silent_start ): 
+					if self.tied[j, k] == 1:
+						tied_state_probability_sum += emission_weights[i, k]
+				for k in xrange( j, self.silent_start ):
+					if self.tied[j, k] == 1:
+						emission_weights[i, k] = tied_state_probability_sum
 
 		# Normalize transition expectations per row (so it becomes transition 
 		# probabilities)
@@ -2586,10 +2598,18 @@ cdef class Model(object):
 						tracebackx[i+1, l] = i+1
 						tracebacky[i+1, l] = k
 
-		# Now the DP table is filled in Get the log-probability of being in the
-		# (silent) ending state at the end of the sequence, having followed the
-		# ML path. This is the log-probability of the ML path given the model.
-		cdef double log_likelihood = v[n, self.end_index]
+		# Now the DP table is filled in. If this is a finite model, get the
+		# log likelihood of ending up in the end state after following the
+		# ML path through the model. If an infinite sequence, find the state
+		# which the ML path ends in, and begin there.
+		cdef int end_index
+		cdef double log_likelihood
+		if self.finite == 1:
+			log_likelihood = v[n, self.end_index]
+			end_index = self.end_index
+		else:
+			end_index = numpy.argmax( v[n] )
+			log_likelihood = v[n, end_index ]
 
 		# Save the viterbi matrix for future use
 		self.v = v
@@ -2601,7 +2621,7 @@ cdef class Model(object):
 		# Otherwise, do the traceback
 		# This holds the path, which we construct in reverse order
 		cdef list path = []
-		cdef int px = n, py = self.end_index, npx
+		cdef int px = n, py = end_index, npx
 
 		# This holds our current position (character, state) AKA (i, k).
 		# We start at the end state
@@ -2626,7 +2646,38 @@ cdef class Model(object):
 
 		# Return the log-likelihood and the right-way-arounded path
 		return ( log_likelihood, path )
+
+	def maximum_a_posteriori( self, sequence ):
+		"""
+		MAP decoding is an alternative to viterbi decoding, which returns the
+		most likely state for each observation, based on the forward-backward
+		algorithm. This is also called posterior decoding. This method is
+		described on p. 14 of http://ai.stanford.edu/~serafim/CS262_2007/
+		notes/lecture5.pdf
+
+		WARNING: This may produce impossible sequences.
+		"""
+
+		transition_log_probabilities, emission_weights = self.forward_backward(
+			sequence )
+
+		# Calculate the index of the sum-of-all-paths log likelihood for all
+		# observations, providing the maximum a posteriori path. 
+		arg_max = numpy.argmax( emission_weights[:,:self.silent_start], axis=1 )
+
+		# The log likelihood of the decoding is the joint of the log likelihood
+		# of all states along the path. 
+		log_likelihood = numpy.sum( numpy.max( emission_weights, axis=1 ) )
 		
+		# Convert to the index, state tuple 
+		path = [ ( i, self.states[idx] ) for i, idx in enumerate( arg_max ) ]
+
+		if self.finite == 1:
+			# If the path is finite, add the end state to the path
+			path.append( ( self.end_index, self.end ) )
+
+		return log_likelihood, path
+
 	def write(self, stream):
 		"""
 		Write out the HMM to the given stream in a format more sane than pickle.
@@ -2912,6 +2963,7 @@ cdef class Model(object):
 		cdef double [:,:] emission_weights
 		cdef numpy.ndarray sequence
 		cdef double log_score, log_sequence_probability, weight
+		cdef double equence_probability_sum
 		cdef int k, i, l, m = len( self.states ), n, x=0, observation=0
 		cdef object symbol
 		cdef double [:] c
@@ -2950,7 +3002,15 @@ cdef class Model(object):
 						sequence[k] )
 
 			# Get the overall log probability of the sequence, and fill in self.f
-			log_sequence_probability = self.forward(sequence)[n, self.end_index]
+
+			f = self.forward( sequence )
+			if self.finite == 1:
+				log_sequence_probability = f[ n, self.end_index ]
+			else:
+				log_sequence_probability = NEGINF
+				for i in xrange( self.silent_start ):
+					log_sequence_probability = pair_lse( f[n, i],
+						log_sequence_probability )
 				
 			# Is the sequence impossible? If so, we can't train on it, so skip 
 			# it
@@ -2962,7 +3022,7 @@ cdef class Model(object):
 			log_score = pair_lse( log_score, log_sequence_probability )
 				
 			# Fill in self.b too
-			self.backward(sequence)
+			b = self.backward(sequence)
 
 			# Save the sequence in the running list of all emitted symbols
 			for symbol in sequence:
@@ -2984,9 +3044,9 @@ cdef class Model(object):
 						# to the end.
 						log_transition_emission_probability_sum = pair_lse( 
 							log_transition_emission_probability_sum, 
-							self.f[i, k] + 
+							f[i, k] + 
 							transition_log_probabilities[k, l] + 
-							e[i, l] + self.b[ i+1, l ] )
+							e[i, l] + b[ i+1, l ] )
 
 					# Now divide by probability of the sequence to make it given
 					# this sequence, and add as this sequence's contribution to 
@@ -3013,8 +3073,8 @@ cdef class Model(object):
 						# table row, since no character is being emitted.
 						log_transition_emission_probability_sum = pair_lse( 
 							log_transition_emission_probability_sum, 
-							self.f[i, k] + transition_log_probabilities[k, l] 
-							+ self.b[i, l] )
+							f[i, k] + transition_log_probabilities[k, l] 
+							+ b[i, l] )
 
 					# Now divide by probability of the sequence to make it given
 					# this sequence, and add as this sequence's contribution to 
@@ -3038,8 +3098,7 @@ cdef class Model(object):
 						# According to http://www1.icsi.berkeley.edu/Speech/
 						# docs/HTKBook/node7_mn.html, we really should divide by
 						# sequence probability.
-						weight = cexp(self.f[i + 1, k] + 
-							self.b[i + 1, k] -
+						weight = cexp(f[i + 1, k] + b[i + 1, k] - 
 							log_sequence_probability)
 
 						# Add this weight to the weight list for this state
@@ -3056,13 +3115,14 @@ cdef class Model(object):
 		# in to train them.
 		cdef double tied_state_probability_sum
 		for i in xrange( total_characters ):
-			tied_state_probability_sum = 0
 			for j in xrange( self.silent_start ):
-				if self.tied[i % self.silent_start, j] == 1:
-					tied_state_probability_sum += emission_weights[j, i]
-			for j in xrange( self.silent_start ):
-				if self.tied[i % self.silent_start, j] == 1:
-					emission_weights[j, i] = tied_state_probability_sum
+				tied_state_probability_sum = 0
+				for k in xrange( j, self.silent_start ): 
+					if self.tied[j, k] == 1:
+						tied_state_probability_sum += emission_weights[k, i]
+				for k in xrange( j, self.silent_start ):
+					if self.tied[j, k] == 1:
+						emission_weights[k, i] = tied_state_probability_sum
 
 		# Normalize transition expectations per row (so it becomes transition 
 		# probabilities)
