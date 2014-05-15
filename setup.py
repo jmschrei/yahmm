@@ -21,7 +21,7 @@ else:
         Extension("yahmm.yahmm", [ "yahmm/yahmm.c" ], include_dirs=[np.get_include()]),
     ]
 
-script_names = [ 'example.py', 'rainy_sunny_hmm.py', 'tied_states_hmm.py', 
+script_names = [ 'example.py', 'rainy_sunny_hmm.py', 'tied_state_hmm.py', 
     'infinite_hmm.py']
 
 scripts = [ "examples/{}".format( name ) for name in script_names ]
