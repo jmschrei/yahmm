@@ -459,8 +459,8 @@ have:
 	* A sample method, which returns a randomly sampled value from the 
 	  distribution.
 
-Additionally, after creating the class, you must call the class's static 
-register() method in order to allow deserialization of HMMs using that 
+Additionally, after creating the class, you must add the distribution to the
+REGISTRY variable in order to allow deserialization of HMMs using that 
 distribution. Once you do this, your distribution can be serialized to a stream 
 with Distribution.write(), and read back in with Distribution.read(). 
 Distribution.read() will automatically determine the type of the distribution 
@@ -486,7 +486,7 @@ Here is an example discrete distribution over {True, False}:
 ...         self.parameters = [float(numpy.dot(items, weights)) / len(items)]
 ...     def sample(self):
 ...         return random.random() < self.parameters[0]
->>> BernoulliDistribution.register()
+>>> REGISTRY['BernoulliDistribution'] = BernoulliDistribution
 >>> bernoulli = BernoulliDistribution(0.5)
 >>> exp(bernoulli.log_probability(True))
 0.5
