@@ -18,3 +18,9 @@ v0.1.4, 5/11/2014 -- Infinite models are now possible, by simply not adding a tr
 Added maximum a posteriori decoding, via "Model.maximum_a_posteriori( sequence )". This returns the mode of the posterior distribution of the states. This sequence may not necessarily be a valid sequence.
 
 Added sampling from infinite models. If your model is infinite, you can pass in length to sample to get a sample of a certain length. You can also pass "path=True" to get the path of hidden states that generated that sample.
+
+v0.1.5 5/18/2014 -- Fixed a bug with training that was introduced in v0.1.4. Because self.f and self.b were cast as double [:,:], they allowed for quick access. They were changed to f, and b, forgetting to cast them, making access extremely slow. This was fixed by casting f and b as double [:,:].
+
+Fixed writing and reading. Previously, reading and writing only worked on Normal, Exponential, Gamma, InverseGamma distributions. Now works on all distributions, including mixtures of arbitrary distributions.
+
+Sped up exponential and gamma distributions a tiny bit by changing the log function to the C log function.

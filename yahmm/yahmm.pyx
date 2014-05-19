@@ -10,9 +10,9 @@ For detailed documentation and examples, see the README.
 cimport cython
 from cython.view cimport array as cvarray
 from libc.math cimport log as clog, sqrt as csqrt, exp as cexp
-import math, random, collections, itertools as it, sys, bisect, time
+import math, random, collections, itertools as it, sys, bisect, ast
 import networkx
-import scipy.stats, scipy.sparse, scipy.special, scipy.misc
+import scipy.stats, scipy.sparse, scipy.special
 
 import numpy
 cimport numpy
@@ -24,6 +24,11 @@ DEF INF = float("inf")
 DEF SQRT_2_PI = 2.50662827463
 
 # Define a mapping of strings to distibution options
+# You can add a new distribution by using it as a normal
+# dictionary, such as:
+#	REGISTRY['BernoulliDistribution'] = BernoulliDistribution
+# You need to do this if you want to read an write distributions.
+
 REGISTRY = { 'NormalDistribution' : NormalDistribution,
 			 'UniformDistribution' : UniformDistribution,
 			 'ExponentialDistribution': ExponentialDistribution,
@@ -94,7 +99,7 @@ cdef class Distribution(object):
 	cdef public str name
 	cdef public list parameters
 	cdef public numpy.ndarray points
-	cdef public double [:] weights
+	cdef public numpy.ndarray weights
 
 	def __init__(self):
 		"""
@@ -154,10 +159,15 @@ cdef class Distribution(object):
 		distribution.
 		"""
 		
+		# Convert numpy arrays to lists for the purposes of writing, to add
+		# in commas between values.
+		param_list = [ param if not isinstance( param, numpy.ndarray ) \
+			else list(param) for param in self.parameters ]
+
 		# Format is name of distribution in distribution lookup table, and then
 		# all the parameters
 		stream.write("{} {}\n".format(self.name, 
-			" ".join(map(repr, self.parameters))))
+			" ".join(map(str, param_list))))
 			
 	@staticmethod
 	def read(stream):
@@ -165,7 +175,8 @@ cdef class Distribution(object):
 		Read a Distribution from the given stream. Instantiate it as the 
 		appropriate Distribution subclass. Implemented as a staticmethod instead
 		of a classmethod since it figures out the appropriate distribution type
-		on its own.
+		on its own. Use the eval method instead of ast.literal_eval because
+		the input should be trusted.
 		"""
 		
 		# Get a line from the stream
@@ -182,9 +193,30 @@ cdef class Distribution(object):
 		
 		# Get the class to use
 		distribution_class = REGISTRY[parts[0]]
+
+		line = line.strip( parts[0] ).strip()
 		
 		# Make a list of float parameters
-		parameters = [float(s) for s in parts[1:]]
+		if parts[0] == 'DiscreteDistribution':
+			# If a discrete distribution, the parameter is a dictionary.
+			# Eval makes turning the dict from a string into a dict easy.
+			parameters = [ eval(line) ]
+		
+		elif 'Distribution' in parts[0] and 'Mixture' not in parts[0]:
+			# If a normal distribution type, get the parameters as floats
+			parameters = [ float(s) for s in parts[1:] ]
+
+		elif 'KernelDensity' in parts[0]:
+			# If a kernel density, get two arrays and a bandwidth
+			points = eval( line.split("]")[0]+"]" )
+			weights = eval( "["+line.split("[")[2] )
+			bandwidth = float( line.split("]")[1].split("[")[0] )
+			parameters = points, bandwidth, weights
+		else:
+			# A mixture distribution
+			distributions = eval( line.split("]")[0]+"]" )
+			weights = eval( "["+line.split("[")[2] )
+			parameters = [ distributions, weights ]
 		
 		# Instantiate and return the distribution, by passing all the parameters
 		# in order to the appropriate constructor.
@@ -193,10 +225,6 @@ cdef class Distribution(object):
 cdef class UniformDistribution(Distribution):
 	"""
 	A uniform distribution between two values.
-	"""
-	
-	"""
-	This is the name that should be used for serializing this distribution.
 	"""
 
 	def __init__(self, start, end):
@@ -254,10 +282,6 @@ cdef class UniformDistribution(Distribution):
 cdef class NormalDistribution(Distribution):
 	"""
 	A normal distribution based on a mean and standard deviation.
-	"""
-	
-	"""
-	This is the name that should be used for serializing this distribution.
 	"""
 
 	def __init__(self, mean, std):
@@ -380,7 +404,7 @@ cdef class ExponentialDistribution(Distribution):
 		What's the probability of the given float under this distribution?
 		"""
 		
-		return log(self.parameters[0]) - self.parameters[0] * symbol
+		return _log(self.parameters[0]) - self.parameters[0] * symbol
 		
 	def sample(self):
 		"""
@@ -447,9 +471,9 @@ cdef class GammaDistribution(Distribution):
 		"""
 		
 		# Gamma pdf from Wikipedia (and stats class)
-		return (log(self.parameters[1]) * self.parameters[0] - 
+		return (_log(self.parameters[1]) * self.parameters[0] - 
 			math.lgamma(self.parameters[0]) + 
-			log(symbol) * (self.parameters[0] - 1) - 
+			_log(symbol) * (self.parameters[0] - 1) - 
 			self.parameters[1] * symbol)
 		
 	def sample(self):
@@ -796,7 +820,7 @@ cdef class GaussianKernelDensity( Distribution ):
 		Replace the points, training without inertia.
 		"""
 
-		self.points = points
+		self.points = numpy.array( points )
 
 		n = len(points)
 		if weights:
@@ -878,7 +902,7 @@ cdef class UniformKernelDensity( Distribution ):
 		Replace the points, training without inertia.
 		"""
 
-		self.points = points
+		self.points = numpy.array( points )
 
 		n = len(points)
 		if weights:
@@ -960,7 +984,7 @@ cdef class TriangleKernelDensity( Distribution ):
 		Replace the points, training without inertia.
 		"""
 
-		self.points = points
+		self.points = numpy.array( points )
 
 		n = len(points)
 		if weights:
@@ -990,6 +1014,14 @@ cdef class MixtureDistribution( Distribution ):
 		self.parameters = [ distributions, self.weights ]
 		self.name = "MixtureDistribution"
 
+	def __str__(self):
+		"""
+		Represent this distribution in a human-readable form.
+		"""
+		
+		return "{}({}, {})".format(self.name, map(str, self.parameters[0]),
+			str(self.parameters[1]) )
+
 	def log_probability( self, symbol ):
 		"""
 		What's the probability of a given float under this mixture? It's
@@ -998,8 +1030,9 @@ cdef class MixtureDistribution( Distribution ):
 		of both numeric and not-necessarily-numeric distributions. 
 		"""
 
-		(d, w), n = self.parameters, len(self.parameters) 
-		return _log(numpy.sum(cexp( d[i](symbol) ) * w[i] for i in xrange(n)))
+		(d, w), n = self.parameters, len(self.parameters)
+		return _log( numpy.sum([ cexp( d[i].log_probability(symbol) ) \
+			* w[i] for i in xrange(n) ]) )
 
 	def sample( self ):
 		"""
@@ -1022,6 +1055,18 @@ cdef class MixtureDistribution( Distribution ):
 		"""
 
 		raise NotImplementedError
+
+	def write(self, stream):
+		"""
+		Write a line to the stream that can be used to reconstruct this 
+		distribution.
+		"""
+		
+		# Format is name of distribution in distribution lookup table, and then
+		# all the parameters
+		stream.write("{} {} {}\n".format( self.name, 
+			"[ " + ", ".join( map( str, self.parameters[0]) ) + " ]",
+			str( list(self.parameters[1]) ) ) )
 
 cdef class State(object):
 	"""
@@ -2958,7 +3003,7 @@ cdef class Model(object):
 		"""        
 			
 		cdef double [:,:] transition_log_probabilities 
-		cdef double [:,:] expected_transitions, e
+		cdef double [:,:] expected_transitions, e, f, b
 		cdef list emitted_symbols 
 		cdef double [:,:] emission_weights
 		cdef numpy.ndarray sequence
@@ -3176,7 +3221,7 @@ cdef class Model(object):
 			# Run the viterbi decoding on each observed sequence
 			log_sequence_probability, sequence_path = self.viterbi( sequence )
 
-			if log_sequence_probability[0] == NEGINF:
+			if log_sequence_probability == NEGINF:
 				print( "Warning: skipped impossible sequence {}".format(sequence) )
 				continue
 
@@ -3229,6 +3274,7 @@ cdef class Model(object):
 					emission += emissions[ self.states[j] ]
 					visited_states.append( j )
 
+			print emission
 			state.distribution.from_sample( emission )
 
 		# Normalize the matrix of counts to log probabilities

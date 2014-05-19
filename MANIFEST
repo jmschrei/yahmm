@@ -5,6 +5,6 @@ setup.py
 examples\example.py
 examples\infinite_hmm.py
 examples\rainy_sunny_hmm.py
-examples\tied_states_hmm.py
+examples\tied_state_hmm.py
 yahmm\__init__.py
 yahmm\yahmm.pyx
