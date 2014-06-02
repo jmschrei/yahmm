@@ -23,27 +23,12 @@ DEF NEGINF = float("-inf")
 DEF INF = float("inf")
 DEF SQRT_2_PI = 2.50662827463
 
-# Define a mapping of strings to distibution options
-# You can add a new distribution by using it as a normal
-# dictionary, such as:
-#	REGISTRY['BernoulliDistribution'] = BernoulliDistribution
-# You need to do this if you want to read an write distributions.
-
-REGISTRY = { 'NormalDistribution' : NormalDistribution,
-			 'UniformDistribution' : UniformDistribution,
-			 'ExponentialDistribution': ExponentialDistribution,
-			 'GammaDistribution' : GammaDistribution,
-			 'InverseGammaDistribution' : InverseGammaDistribution,
-			 'DiscreteDistribution' : DiscreteDistribution,
-			 'LambdaDistribution' : LambdaDistribution,
-			 'GaussianKernelDensity' : GaussianKernelDensity,
-			 'UniformKernelDensity' : UniformKernelDensity,
-			 'TriangleKernelDensity' : TriangleKernelDensity,
-			 'MixtureDistribution' : MixtureDistribution }
-
 # Useful speed optimized functions
 cdef inline double _log ( double x ):
 	return clog( x ) if x > 0 else NEGINF
+
+cdef inline double pair_double_max( double x, double y ):
+	return x if x > y else y
 
 cdef inline double pair_lse( double x, double y ):
 	if x == INF or y == INF:
@@ -152,75 +137,6 @@ cdef class Distribution(object):
 		"""
 		
 		return "{}({})".format(self.name, ", ".join(map(str, self.parameters)))
-		
-	def write(self, stream):
-		"""
-		Write a line to the stream that can be used to reconstruct this 
-		distribution.
-		"""
-		
-		# Convert numpy arrays to lists for the purposes of writing, to add
-		# in commas between values.
-		param_list = [ param if not isinstance( param, numpy.ndarray ) \
-			else list(param) for param in self.parameters ]
-
-		# Format is name of distribution in distribution lookup table, and then
-		# all the parameters
-		stream.write("{} {}\n".format(self.name, 
-			" ".join(map(str, param_list))))
-			
-	@staticmethod
-	def read(stream):
-		"""
-		Read a Distribution from the given stream. Instantiate it as the 
-		appropriate Distribution subclass. Implemented as a staticmethod instead
-		of a classmethod since it figures out the appropriate distribution type
-		on its own. Use the eval method instead of ast.literal_eval because
-		the input should be trusted.
-		"""
-		
-		# Get a line from the stream
-		line = stream.readline()
-		if line == "":
-			# EoF
-			raise EOFError("EoF encountered wile reading distribution.")
-			
-		# Break it into parts. The first part is the name of the distribution 
-		# and the other parts are parameters.    
-		parts = line.strip().split()
-		if not REGISTRY.has_key(parts[0]):
-			raise Exception("Unknown distribution: {}".format(parts[0]))
-		
-		# Get the class to use
-		distribution_class = REGISTRY[parts[0]]
-
-		line = line.strip( parts[0] ).strip()
-		
-		# Make a list of float parameters
-		if parts[0] == 'DiscreteDistribution':
-			# If a discrete distribution, the parameter is a dictionary.
-			# Eval makes turning the dict from a string into a dict easy.
-			parameters = [ eval(line) ]
-		
-		elif 'Distribution' in parts[0] and 'Mixture' not in parts[0]:
-			# If a normal distribution type, get the parameters as floats
-			parameters = [ float(s) for s in parts[1:] ]
-
-		elif 'KernelDensity' in parts[0]:
-			# If a kernel density, get two arrays and a bandwidth
-			points = eval( line.split("]")[0]+"]" )
-			weights = eval( "["+line.split("[")[2] )
-			bandwidth = float( line.split("]")[1].split("[")[0] )
-			parameters = points, bandwidth, weights
-		else:
-			# A mixture distribution
-			distributions = eval( line.split("]")[0]+"]" )
-			weights = eval( "["+line.split("[")[2] )
-			parameters = [ distributions, weights ]
-		
-		# Instantiate and return the distribution, by passing all the parameters
-		# in order to the appropriate constructor.
-		return distribution_class(*parameters)
 
 cdef class UniformDistribution(Distribution):
 	"""
@@ -339,7 +255,7 @@ cdef class NormalDistribution(Distribution):
 		if len(items) == 0:
 			# No sample, so just ignore it and keep our old parameters.
 			return
-		
+
 		# Make it be a numpy array
 		items = numpy.asarray(items)
 		
@@ -354,14 +270,13 @@ cdef class NormalDistribution(Distribution):
 			# Since negative weights are banned, we must have no data.
 			# Don't change the parameters at all.
 			return
-		
 		# The ML uniform distribution is just sample mean and sample std.
 		# But we have to weight them. average does weighted mean for us, but 
-		# weighted std requires a trick from Stack Overflow and Prof. Karplus.
+		# weighted std requires a trick from Stack Overflow.
 		# http://stackoverflow.com/a/2415343/402891
 		# Take the mean
 		mean = numpy.average(items, weights=weights)
-		
+
 		if len(weights[weights != 0]) > 1:
 			# We want to do the std too, but only if more than one thing has a 
 			# nonzero weight
@@ -381,7 +296,6 @@ cdef class NormalDistribution(Distribution):
 		
 		# Enforce min std
 		std = max( numpy.array([std, min_std]) )
-			
 		# Set the parameters
 		self.parameters = [mean, std]
 
@@ -512,7 +426,7 @@ cdef class GammaDistribution(Distribution):
 		if len(items) == 0:
 			# No sample, so just ignore it and keep our old parameters.
 			return
-		
+
 		# Make it be a numpy array
 		items = numpy.asarray(items)
 		
@@ -522,12 +436,12 @@ cdef class GammaDistribution(Distribution):
 		else:
 			# Force whatever we have to be a Numpy array
 			weights = numpy.asarray(weights)
-		
+
 		if weights.sum() == 0:
 			# Since negative weights are banned, we must have no data.
 			# Don't change the parameters at all.
 			return
-		
+
 		# First, do Newton-Raphson for shape parameter.
 		
 		# Calculate the sufficient statistic s, which is the log of the average 
@@ -536,7 +450,7 @@ cdef class GammaDistribution(Distribution):
 		# obvious.)
 		statistic = (log(numpy.average(items, weights=weights)) - 
 			numpy.average(log(items), weights=weights))
-			
+
 		# Start our Newton-Raphson at what Wikipedia claims a 1969 paper claims 
 		# is a good approximation.
 		# Really, start with new_shape set, and shape set to be far away from it
@@ -545,12 +459,12 @@ cdef class GammaDistribution(Distribution):
 		if statistic != 0:
 			# Not going to have a divide by 0 problem here, so use the good
 			# estimate
-			new_shape =  (3 - statistic + csqrt((statistic - 3) ** 2 + 24 * 
+			new_shape =  (3 - statistic + math.sqrt((statistic - 3) ** 2 + 24 * 
 				statistic)) / (12 * statistic)
 		if statistic == 0 or new_shape <= 0:
 			# Try the current shape parameter
 			new_shape = self.parameters[0]
-		
+
 		# Count the iterations we take
 		iteration = 0
 			
@@ -1076,24 +990,29 @@ cdef class State(object):
 	
 	cdef public Distribution distribution
 	cdef public str name
+	cdef public str identity
 
-	def __init__(self, distribution, name=None ):
+	def __init__(self, distribution, name=None, identity=None ):
 		"""
 		Make a new State emitting from the given distribution. If distribution 
 		is None, this state does not emit anything. A name, if specified, will 
 		be the state's name when presented in output. Name may not contain 
-		spaces or newlines, and must be unique within an HMM.
+		spaces or newlines, and must be unique within an HMM. Identity is a
+		store of the id property, to allow for multiple states to have the same
+		name but be uniquely identifiable. 
 		"""
 		
 		# Save the distribution
 		self.distribution = distribution
 		
-		if name is not None:
-			# Name specified by the user. Use that instead.
-			self.name = name
+		# Save the name
+		self.name = name or str(id(str))
+
+		# Save the id
+		if identity is not None:
+			self.identity = str(identity)
 		else:
-			# No name specified, use the memory address
-			self.name = str(id(self))
+			self.identity = str(id(self))
 
 	def is_silent(self):
 		"""
@@ -1133,7 +1052,8 @@ cdef class State(object):
 		Represent this state uniquely.
 		"""
 		
-		return "State({}, {})".format(self.name, str(self.distribution))
+		return "State({}, {}, {})".format(
+			self.name, str(self.distribution), self.identity)
 		
 	def write(self, stream):
 		"""
@@ -1144,12 +1064,9 @@ cdef class State(object):
 		distribution.
 		"""
 		
-		
-		if self.is_silent():
-			stream.write("{} *\n".format(self.name))
-		else:
-			stream.write("{}\n".format(self.name))
-			self.distribution.write(stream)
+		name = self.name.replace( " ", "_" ) 
+		stream.write( "{} {} {}\n".format( 
+			self.identity, name, str( self.distribution ) ) )
 			
 	@classmethod
 	def read(cls, stream):
@@ -1166,19 +1083,11 @@ cdef class State(object):
 		# Spilt the line up
 		parts = line.strip().split()
 		
-		# parts[0] holds the state's name, and parts[1], if it exists, holds "*"
-		# if the state is silent.
-		
-		if len(parts) > 1 and parts[1] == "*":
-			# This is a silent state
-			return cls(None, name=parts[0])
-		else:
-			# This state has a distribution on the next line.
-			# Read in the distribution
-			distribution = Distribution.read(stream)
-			
-			# Make and return the state
-			return cls(distribution, name=parts[0])
+		# parts[0] holds the state's name, and parts[1] holds the rest of the
+		# state information, so we can just evaluate it.
+		identity, name, state_info = parts[0], parts[1], ' '.join( parts[2:] )
+		return eval( "State( {}, name='{}', identity='{}'' )".format( 
+			state_info, name, identity )
 
 cdef class Model(object):
 	"""
@@ -1371,60 +1280,23 @@ cdef class Model(object):
 		and new start and end states are not generated.
 		"""
 		
-		if name is not None:
-			# We have a name
-			self.name = name
-		else:
-			# Make up a name
-			self.name = str(id(self))
-		
+		# Save the name or make up a name.
+		self.name = name or str( id(self) )
+
 		# This holds a directed graph between states. Nodes in that graph are
 		# State objects, so they're guaranteed never to conflict when composing
 		# two distinct models
 		self.graph = networkx.DiGraph()
 		
-		if start is not None:
-			# Use the specified start state
-			self.start = start
-		else:
-			# Make start state with no emissions
-			self.start = State(None, name=self.name + "-start")
-			
-		if end is not None:
-			# Use the specified end state
-			self.end = end
-		else:
-			# Make end state with no emissions
-			self.end = State(None, name=self.name + "-end")
+		# Save the start or make up a start
+		self.start = start or State( None, name=self.name + "-start" )
+
+		# Save the end or make up a end
+		self.end = end or State( None, name=self.name + "-end" )
 		
 		# Put start and end in the graph
 		self.graph.add_node(self.start)
 		self.graph.add_node(self.end)
-		
-		'''
-		# Later, in self.bake(), we will fill these in.
-		# List of all states in a defined order
-		self.states = None
-		# Numpy array of log probabilities for [from, to] transitions
-		self.transition_log_probabilities = None
-		# Index of start state
-		self.start_index = None
-		# Index of end state
-		self.end_index = None
-		# Index of first silent state
-		self.silent_start = None
-		
-		# This holds the forward algorithm DP table. Each entry i, k holds the
-		# log probability of emitting i symbols and ending in state k. This is
-		# initialized by self.forward
-		self.f = None
-		
-		# This holds the backward algorithm DP table. Each entry i, k holds the
-		# log probability of emitting the remaining len(sequence) - i symbols
-		# and ending in the end state, given that we are in state k. This is
-		# initialized by self.backward.
-		self.b = None
-		'''
 	
 	def __str__(self):
 		"""
@@ -1586,7 +1458,7 @@ cdef class Model(object):
 				self.graph.edge[state].values() ) ), 8 )
 
 			# The end state has no out edges, so will be 0
-			if out_edges < 1. and state != self.end:
+			if out_edges != 1. and state != self.end:
 				# Issue a notice if verbose is activated
 				if verbose:
 					print "{} : {} summed to {}, normalized to 1.0"\
@@ -1781,7 +1653,6 @@ cdef class Model(object):
 				start += 1
 
 			self.out_transition_log_probabilities[ start ] = data['weight']
-
 			self.out_transitions[ start ] = indices[b]  
 
 		# This holds the index of the start state
@@ -1797,7 +1668,7 @@ cdef class Model(object):
 			raise SyntaxError( "Model.end has been deleted, leaving the \
 				model with no end. Please ensure it has an end." )
 
-	def sample( self, length=None, path=False ):
+	def sample( self, length=0, path=False ):
 		"""
 		Generate a sequence from the model. Returns the sequence generated, as a
 		list of emitted items. The model must have been baked first in order to 
@@ -1819,70 +1690,104 @@ cdef class Model(object):
 		they will not generate an emission.
 		"""
 		
-		# First prepare a table of cumulative transition probabilities.
-		# Get the probabilities of all the transitions
-		transition_probabilities = exp(self.transition_log_probabilities)
-		
-		# Calculate cumulative transition probabilities
-		cum_probabilities = numpy.cumsum(transition_probabilities, 
-			axis=1)
-		
+		return self._sample( length, path )
+
+	cdef list _sample( self, int length, int path ):
+		"""
+		Perform a run of sampling.
+		"""
+
+		cdef int i, j, k, l, li, m=len(self.states)
+		cdef double cumulative_probability
+		cdef double [:,:] transition_probabilities = numpy.zeros( (m,m) )
+		cdef double [:] cum_probabilities = numpy.zeros( 
+			len(self.out_transitions) )
+
+		cdef int [:] out_edges = self.out_edge_count
+
+		for k in xrange( m ):
+			cumulative_probability = 0.
+			for l in xrange( out_edges[k], out_edges[k+1] ):
+				cumulative_probability += cexp( 
+					self.out_transition_log_probabilities[l] )
+				cum_probabilities[l] = cumulative_probability 
+
 		# This holds the numerical index of the state we are currently in.
 		# Start in the start state
-		state = self.start_index
+		i = self.start_index
 		
 		# Record the number of samples
-		n = 0
-		# This holds the emissions
-		emissions = []
-		sequence_path = []
+		cdef int n = 0
+		# Define the list of emissions, and the path of hidden states taken
+		cdef list emissions = [], sequence_path = []
+		cdef State state
 
-		while state != self.end_index:
+		while i != self.end_index:
 			# Get the object associated with this state
-			state_object = self.states[state]
+			state = self.states[i]
 
 			# Add the state to the growing path
-			sequence_path.append( state_object )
+			sequence_path.append( state )
 			
-			if state_object.distribution is not None:
+			if state.distribution != None:
 				# There's an emission distribution, so sample from it
-				emissions.append(state_object.distribution.sample())
+				emissions.append( state.distribution.sample() )
 				n += 1
 
 			# If we've reached the specified length, return the appropriate
 			# values
-			if length and n >= length:
-				return (emissions, sequence_path) if path else emissions
+			if length != 0 and n >= length:
+				if path:
+					return [emissions, sequence_path]
+				return emissions
 
 			# What should we pick as our next state?
-			# Generate a random number between 0 and the total probability of 
-			# this state (ought to be 1):
-			sample = random.uniform(0, cum_probabilities[state, -1])
+			# Generate a number between 0 and 1 to make a weighted decision
+			# as to which state to jump to next.
+			sample = random.random()
 			
 			# Save the last state id we were in
-			last_state = state
+			j = i
 
-			# Find out what state we're supposed to go into using bisect, and go
-			# there
-			state = bisect.bisect(cum_probabilities[state, :], sample)
+			# Find out which state we're supposed to go to by comparing the
+			# random number to the list of cumulative probabilities for that
+			# state, and then picking the selected state.
+			for k in xrange( out_edges[i], out_edges[i+1] ):
+				if cum_probabilities[k] > sample:
+					i = self.out_transitions[k]
+					break
 
 			# If the user specified a length, and we're not at that length, and
 			# we're in an infinite HMM, we want to avoid going to the end state
 			# if possible. If there is only a single probability 1 end to the
 			# end state we can't avoid it, otherwise go somewhere else.
-			if length and self.finite == 1 and state == self.end_index:
-				# If it's the only transition (log probability of 0), end
-				if self.transition_log_probabilities[last_state, state] == 0:
-					break
+			if length != 0 and self.finite == 1 and i == self.end_index:
+				# If there is only one transition...
+				if len( xrange( out_edges[j], out_edges[j+1] ) ) == 1:
+					# ...and that transition goes to the end of the model...
+					if self.out_transitions[ out_edges[j] ] == self.end_index:
+						# ... then end the sampling, as nowhere else to go.
+						break
 
-				# Else, sample until we find a new one. 
-				while state == self.end_index:
-					sample = random.uniform(0,cum_probabilities[last_state,-1])
-					state = bisect.bisect(cum_probabilities[last_state, :], 
-						sample)
-			
-		# We made it to the end state. Return our emission sequence.
-		return (emissions, sequence_path) if path else emissions
+				# Take the cumulative probability of not going to the end state
+				cumulative_probability = 0.
+				for k in xrange( out_edges[k], out_edges[k+1] ):
+					if self.out_transitions[k] != self.end_index:
+						cumulative_probability += cum_probabilities[k]
+
+				# Randomly select a number in that probability range
+				sample = random.uniform( 0, cumulative_probability )
+
+				# Select the state is corresponds to
+				for k in xrange( out_edges[i], out_edges[i+1] ):
+					if cum_probabilities[k] > sample:
+						i = self.out_transitions[k]
+						break
+		
+		# Done! Return either emissions, or emissions and path.
+		if path:
+			return [emissions, sequence_path]
+		return emissions
 
 	def forward( self, sequence ):
 		'''
@@ -2491,15 +2396,16 @@ cdef class Model(object):
 		# Normalize transition expectations per row (so it becomes transition 
 		# probabilities)
 		# See http://stackoverflow.com/a/8904762/402891
-		i = 0 
 		for i in xrange( m ):
 			norm = 0.
-			for l in xrange( m ):
-				norm += expected_transitions[i, l]
+			for l in xrange( out_edges[i], out_edges[i+1] ):
+				li = self.out_transitions[l]
+				norm += expected_transitions[i, li]
 			if norm > 0.:
-				for l in xrange( m ):
-					transition_log_probabilities[i, l] = \
-						clog( expected_transitions[i, l] ) - clog( norm )
+				for l in xrange( out_edges[i], out_edges[i+1] ):
+					li = self.out_transitions[l]
+					transition_log_probabilities[i, li] = \
+						clog( expected_transitions[i, li] ) - clog( norm )
 
 		return numpy.array( transition_log_probabilities ), \
 			numpy.array( emission_weights )
@@ -2544,7 +2450,7 @@ cdef class Model(object):
 
 		cdef unsigned int n = sequence.shape[0], m = len(self.states)
 		cdef double p
-		cdef int i, l, k
+		cdef int i, l, k, ki
 		cdef int [:,:] tracebackx, tracebacky
 		cdef double [:,:] v, e
 		cdef double state_log_probability
@@ -2591,22 +2497,20 @@ cdef class Model(object):
 				continue
 
 			for k in xrange( in_edges[l], in_edges[l+1] ):
-				k = self.in_transitions[k]
-				if k < self.silent_start:
-					continue
-				if k >= l:
+				ki = self.in_transitions[k]
+				if ki < self.silent_start or ki >= l:
 					continue
 
 				# For each current-step preceeding silent state k
 				# This holds the log-probability coming that way
-				state_log_probability = v[0, k] + \
-					self.transition_log_probabilities[k, l]
+				state_log_probability = v[0, ki] + \
+					self.in_transition_log_probabilities[k]
 
 				if state_log_probability > v[0, l]:
 					# New winner!
 					v[0, l] = state_log_probability
 					tracebackx[0, l] = 0
-					tracebacky[0, l] = k
+					tracebacky[0, l] = ki
 
 		for i in xrange( n ):
 			for l in xrange( self.silent_start ):
@@ -2615,18 +2519,18 @@ cdef class Model(object):
 				v[i+1, l] = NEGINF
 				
 				for k in xrange( in_edges[l], in_edges[l+1] ):
-					k = self.in_transitions[k]
+					ki = self.in_transitions[k]
 
 					# For each previous state k
 					# This holds the log-probability coming that way
-					state_log_probability = v[i, k] + \
-						self.transition_log_probabilities[k, l] + e[i, l]
+					state_log_probability = v[i, ki] + \
+						self.in_transition_log_probabilities[k] + e[i, l]
 
 					if state_log_probability > v[i+1, l]:
 						# Best to come from there to here
 						v[i+1, l] = state_log_probability
 						tracebackx[i+1, l] = i
-						tracebacky[i+1, l] = k
+						tracebacky[i+1, l] = ki
 
 			for l in xrange( self.silent_start, m ):
 				# Now do the first pass over the silent states, finding the best
@@ -2635,20 +2539,20 @@ cdef class Model(object):
 				v[i+1, l] = NEGINF
 
 				for k in xrange( in_edges[l], in_edges[l+1] ):
-					k = self.in_transitions[k]
-					if k >= self.silent_start:
+					ki = self.in_transitions[k]
+					if ki >= self.silent_start:
 						continue
 
 					# For each current-step non-silent state k
 					# This holds the log-probability coming that way
-					state_log_probability = v[i+1, k] + \
-						self.transition_log_probabilities[k, l]
+					state_log_probability = v[i+1, ki] + \
+						self.in_transition_log_probabilities[k]
 
 					if state_log_probability > v[i+1, l]:
 						# Best to come from there to here
 						v[i+1, l] = state_log_probability
 						tracebackx[i+1, l] = i+1
-						tracebacky[i+1, l] = k
+						tracebacky[i+1, l] = ki
 
 			for l in xrange( self.silent_start, m ):
 				# Now the second pass through silent states, where we check the
@@ -2656,22 +2560,20 @@ cdef class Model(object):
 				# they're better than the non-silent states we found.
 
 				for k in xrange( in_edges[l], in_edges[l+1] ):
-					k = self.in_transitions[k]
-					if k < self.silent_start:
-						continue
-					if k >= l:
+					ki = self.in_transitions[k]
+					if ki < self.silent_start or ki >= l:
 						continue
 
 					# For each current-step preceeding silent state k
 					# This holds the log-probability coming that way
-					state_log_probability = v[i+1, k] + \
-						self.transition_log_probabilities[k, l]
+					state_log_probability = v[i+1, ki] + \
+						self.in_transition_log_probabilities[k]
 
 					if state_log_probability > v[i+1, l]:
 						# Best to come from there to here
 						v[i+1, l] = state_log_probability
 						tracebackx[i+1, l] = i+1
-						tracebacky[i+1, l] = k
+						tracebacky[i+1, l] = ki
 
 		# Now the DP table is filled in. If this is a finite model, get the
 		# log likelihood of ending up in the end state after following the
@@ -2759,9 +2661,9 @@ cdef class Model(object):
 		
 		HMM must have been baked.
 		
-		HMM is written as its name and state count, a list of states, and then 
-		a list of transitions of the form "<state> <state> <probability>" until 
-		EoF.
+		HMM is written as a series of "<name> <Distribution>" pairs, which can
+		be directly evaluated by the eval method. This makes them both human
+		readable, and keeps the code for it super simple.
 		
 		The start state is the one named "<hmm name>-start" and the end state is
 		the one named "<hmm name>-end". Start and end states are always silent.
@@ -2771,6 +2673,10 @@ cdef class Model(object):
 		backtracking parser.
 		"""
 		
+		# Change our name to remove all whitespace, as this causes issues
+		# with the parsing later on.
+		self.name = self.name.replace( " ", "_" )
+
 		# Write our name.
 		stream.write("{} {}\n".format(self.name, len(self.states)))
 		
@@ -2807,19 +2713,22 @@ cdef class Model(object):
 			# it's more human-readable and human-writeable.
 			
 			# Get the name of the state we're leaving
-			from_name = self.states[from_index].name
+			from_name = self.states[from_index].name.replace( " ", "_" )
+			from_id = self.states[from_index].identity
 			
 			# And the one we're going to
-			to_name = self.states[to_index].name
-			
+			to_name = self.states[to_index].name.replace( " ", "_" )
+			to_id = self.states[to_index].identity
+
 			# And the probability
 			probability = exp(log_probability)
 			
 			# Write it out
-			stream.write("{} {} {}\n".format(from_name, to_name, probability))
+			stream.write("{} {} {} {} {}\n".format(
+				from_name, to_name, probability, from_id, to_id ) )
 			
 	@classmethod
-	def read(cls, stream):
+	def read(cls, stream, verbose=False):
 		"""
 		Read a HMM from the given stream, in the format used by write(). The 
 		stream must end at the end of the data defining the HMM.
@@ -2838,10 +2747,10 @@ cdef class Model(object):
 		name = parts[0]
 		
 		# Get the number of states to read
-		num_states = int(parts[1])
+		num_states = int(parts[-1])
 		
 		# Read and make the states.
-		# Keep a dict of states by name
+		# Keep a dict of states by id
 		states = {}
 		
 		for i in xrange(num_states):
@@ -2849,15 +2758,15 @@ cdef class Model(object):
 			state = State.read(stream)
 			
 			# Store it in the state dict
-			states[state.name] = state
+			states[state.identity] = state
+
+			# We need to find the start and end states before we can make the HMM.
+			# Luckily, we know their names.
+			if state.name == "{}-start".format( name ):
+				start_state = state
+			if state.name == "{}-end".format( name ):
+				end_state = state
 			
-		# We need to find the start and end states before we can make the HMM.
-		# Luckily, we know their names.
-		
-		# Grab the start state
-		start_state = states["{}-start".format(name)]
-		end_state = states["{}-end".format(name)]
-		
 		# Make the HMM object to populate
 		hmm = cls(name=name, start=start_state, end=end_state)
 		
@@ -2870,17 +2779,18 @@ cdef class Model(object):
 		for line in stream:
 			# Pull out the from state name, to state name, and probability 
 			# string
-			(from_name, to_name, probability_string) = line.strip().split()
+			(from_name, to_name, probability_string, from_id, to_id) = \
+				line.strip().split()
 			
 			# Make the probability as a float
 			probability = float(probability_string)
 			
 			# Look up the states and add the transition
-			hmm.add_transition(states[from_name], states[to_name], probability)
+			hmm.add_transition(states[from_id], states[to_id], probability)
 			
 		# Now our HMM is done.
 		# Bake and return it.
-		hmm.bake()
+		hmm.bake( verbose=verbose )
 		return hmm
 	
 	@classmethod
@@ -2972,11 +2882,22 @@ cdef class Model(object):
 		accuracy can be sacrificed for time.
 		"""
 
-		if algorithm.lower() == 'baum-welch':
-			return self._train_baum_welch(sequences, stop_threshold,
-				min_iterations, max_iterations, verbose, transition_pseudocount)
+		if algorithm.lower() == 'labelled' or algorithm.lower() == 'labeled':
+			for i, sequence in enumerate(sequences):
+				sequences[i] = ( numpy.array( sequence[0] ), sequence[1] )
+			return self._train_labelled( sequences, transition_pseudocount )
+
+		# Cast everything as a numpy array for input into the other possible
+		# training algorithms.
+		sequences = numpy.array( sequences )
+		for i, sequence in enumerate( sequences ):
+			sequences[i] = numpy.array( sequence )
+
 		if algorithm.lower() == 'viterbi':
-			return self._train_viterbi(sequences)
+			return self._train_viterbi( sequences, transition_pseudocount )
+		if algorithm.lower() == 'baum-welch':
+			return self._train_baum_welch( sequences, stop_threshold,
+				min_iterations, max_iterations, verbose, transition_pseudocount)
 
 	def _train_baum_welch(self, sequences, stop_threshold, min_iterations, 
 		max_iterations, verbose, transition_pseudocount ):
@@ -2990,10 +2911,6 @@ cdef class Model(object):
 		
 		Always trains for at least min_iterations.
 		"""
-
-		sequences = numpy.array( sequences )
-		for i, sequence in enumerate( sequences ):
-			sequences[i] = numpy.array( sequence )
 
 		# What's the current log score?
 		log_score = self._train_once_baum_welch(sequences, transition_pseudocount)
@@ -3038,12 +2955,13 @@ cdef class Model(object):
 		cdef numpy.ndarray sequence
 		cdef double log_score, log_sequence_probability, weight
 		cdef double equence_probability_sum
-		cdef int k, i, l, li, m = len( self.states ), n, x=0, observation=0
+		cdef int k, i, l, li, m = len( self.states ), n, observation=0
 		cdef int characters_so_far = 0
 		cdef object symbol
-		cdef int [:] out_edges = self.out_edge_count
 
-		transition_log_probabilities = self.transition_log_probabilities 
+		cdef int [:] out_edges = self.out_edge_count
+		cdef int [:] in_edges = self.in_edge_count
+
 		# Find the expected number of transitions between each pair of states, 
 		# given our data and our current parameters, but allowing the paths 
 		# taken to vary. (Indexed: from, to)
@@ -3099,7 +3017,7 @@ cdef class Model(object):
 
 			# Save the sequence in the running list of all emitted symbols
 			for i in xrange( n ):
-				emitted_symbols[characters_so_far + i] = sequence[i]
+				emitted_symbols[characters_so_far+i] = sequence[i]
 
 			for k in xrange( m ):
 				# For each state we could have come from
@@ -3120,7 +3038,7 @@ cdef class Model(object):
 						log_transition_emission_probability_sum = pair_lse( 
 							log_transition_emission_probability_sum, 
 							f[i, k] + 
-							transition_log_probabilities[k, li] + 
+							self.out_transition_log_probabilities[l] + 
 							e[i, li] + b[ i+1, li] )
 
 					# Now divide by probability of the sequence to make it given
@@ -3149,7 +3067,7 @@ cdef class Model(object):
 						# table row, since no character is being emitted.
 						log_transition_emission_probability_sum = pair_lse( 
 							log_transition_emission_probability_sum, 
-							f[i, k] + transition_log_probabilities[k, li] 
+							f[i, k] + self.out_transition_log_probabilities[l] 
 							+ b[i, li] )
 
 					# Now divide by probability of the sequence to make it given
@@ -3204,21 +3122,33 @@ cdef class Model(object):
 		# See http://stackoverflow.com/a/8904762/402891
 		# Only modifies transitions for states a transition was observed from.
 		# Work in log space
-		cdef double norm
-		for k in xrange( m ):
-			norm = 0
-			for l in xrange( out_edges[k], out_edges[k+1] ):
-				li = self.out_transitions[l]
-				norm += expected_transitions[k, li] + transition_pseudocount
-			for l in xrange( out_edges[k], out_edges[k+1] ):
-				li = self.out_transitions[l]
-				transition_log_probabilities[k, li] = \
-					_log( expected_transitions[k, li] + transition_pseudocount ) - \
-					_log( norm )
+		cdef double [:] norm = numpy.zeros( m )
 
-		for i in xrange( m ):
-			print self.transition_log_probabilities[2, i],
-		print
+		# Calculate the regularizing norm for each node
+		for k in xrange( m ):
+			for l in xrange( out_edges[k], out_edges[k+1] ):
+				li = self.out_transitions[l]
+				norm[k] += expected_transitions[k, li] + transition_pseudocount
+
+		# For every node, update the transitions appropriately
+		for k in xrange( m ):
+			# Recalculate each transition out from that node and update
+			# the vector of out transitions appropriately
+			if norm[k] > 0:
+				for l in xrange( out_edges[k], out_edges[k+1] ):
+					li = self.out_transitions[l]
+					self.out_transition_log_probabilities[l] = \
+						_log(expected_transitions[k, li]+transition_pseudocount )-\
+						_log( norm[k] )
+
+			# Recalculate each transition in to that node and update the
+			# vector of in transitions appropriately 
+			for l in xrange( in_edges[k], in_edges[k+1] ):
+				li = self.in_transitions[l]
+				if norm[li] > 0:
+					self.in_transition_log_probabilities[l] = \
+						_log(expected_transitions[li, k]+transition_pseudocount)-\
+						_log( norm[li] )
 
 		for k in xrange(self.silent_start):
 			# Re-estimate the emission distribution for every non-silent state.
@@ -3231,95 +3161,166 @@ cdef class Model(object):
 		# Now we have updated out transition log probabilities, and our emission
 		# distributions.
 		# Return the log total probability of all sequences (log score)
-		self.transition_log_probabilities = transition_log_probabilities
 		return log_score
 
-	def _train_viterbi( self, sequences ):
+	cdef double _train_viterbi( self, numpy.ndarray sequences, 
+		double transition_pseudocount ):
 		"""
 		Performs a simple viterbi training algorithm. Each sequence is tagged
 		using the viterbi algorithm, and both emissions and transitions are
 		updated based on the probabilities in the observations.
 		"""
 
-		m = len( self.states )
-		indices = { node: i for node, i in it.izip( self.states, xrange(m) ) }
-
-		log_score = NEGINF
-		emissions = {} 
-		expected_transitions = numpy.zeros( (m,m) )
+		cdef numpy.ndarray sequence
+		cdef list sequence_path_pairs = []
 
 		for sequence in sequences:
-			n = len( sequence )
 
 			# Run the viterbi decoding on each observed sequence
 			log_sequence_probability, sequence_path = self.viterbi( sequence )
-
 			if log_sequence_probability == NEGINF:
 				print( "Warning: skipped impossible sequence {}".format(sequence) )
 				continue
 
-			# Filter out silent states, as they are not paired with an
-			# observation
-			filtered_path = filter( lambda state: not state[1].is_silent(), 
-				sequence_path )
+			# Strip off the ID
+			for i in xrange( len( sequence_path ) ):
+				sequence_path[i] = sequence_path[i][1]
 
-			# Update the log score 
+			sequence_path_pairs.append( (sequence, sequence_path) )
+
+		return self._train_labelled( sequence_path_pairs, 
+			transition_pseudocount )
+
+	cdef double _train_labelled( self, list sequences,
+		double transition_pseudocount ):
+		"""
+		Perform training on a set of sequences where the state path is known,
+		thus, labelled. Pass in a list of tuples, where each tuple is of the
+		form (sequence, labels).
+		"""
+
+		cdef int i, j, m=len(self.states), n, a, b
+		cdef int characters_so_far=0, total_characters=0
+		cdef numpy.ndarray sequence 
+		cdef list labels
+		cdef State label
+		cdef double log_score, log_sequence_probability
+		cdef double [:,:] f
+
+		# Get the total number of characters emitted by going through each
+		# sequence and getting the length
+		for sequence, labels in sequences:
+			total_characters += len( sequence )
+
+		# Define matrices for the transitions between states, and the weight of
+		# each emission for each state for training later.
+		cdef int [:,:] transition_counts
+		transition_counts = numpy.zeros((m,m), dtype=numpy.int32)
+
+		cdef double [:,:] emission_weights
+		emission_weights = numpy.zeros( (self.silent_start,total_characters) )
+
+		# Keep track of all of the symbols emitted
+		cdef numpy.ndarray emitted_symbols
+		emitted_symbols = numpy.zeros( total_characters, dtype=type(sequences[0][0]) )
+
+		cdef int [:] in_edges = self.in_edge_count
+		cdef int [:] out_edges = self.out_edge_count
+
+		# Define a mapping of state objects to index 
+		cdef dict indices = { self.states[i]: i for i in xrange( m ) }
+
+		# Keep track of the log score across all sequences 
+		log_score = NEGINF
+
+		for sequence, labels in sequences:
+			n = len(sequence)
+
+			for i in xrange( n ):
+				emitted_symbols[characters_so_far+i] = sequence[i]
+
+			# Calculate the log probability of this sequence
+			f = self.forward( sequence )
+			if self.finite == 1:
+				log_sequence_probability = f[ n, self.end_index ]
+			else:
+				log_sequence_probability = NEGINF
+				for i in xrange( self.silent_start ):
+					log_sequence_probability = pair_lse( f[n, i],
+						log_sequence_probability )
+
+			# Add it to the log score of all sequences
 			log_score = pair_lse( log_score, log_sequence_probability )
 
-			# Assume that the starting character-generating hidden state is
-			# the first hidden state after the start
-			l = indices[ self.start ]
-			k = indices[ filtered_path[0][1] ]
-			expected_transitions[ l, k ] += 1
+			# Keep track of the number of transitions from one state to another
+			transition_counts[ self.start_index, indices[labels[0]] ] += 1
+			for i in xrange( len(labels)-1 ):
+				a = indices[labels[i]]
+				b = indices[labels[i+1]]
+				transition_counts[ a, b ] += 1
+			transition_counts[ indices[labels[-1]], self.end_index ] += 1
 
-			# Assume the last character-generating hidden state is the last
-			# hidden state before the end
-			l = indices[ filtered_path[-1][1] ]
-			k = indices[ self.end ]
-			expected_transitions[ l, k ] += 1
+			# Indicate whether or not an emission came from a state or not.
+			for label in labels:
+				if label.is_silent():
+					continue
+				a = indices[label]
+				emission_weights[a, characters_so_far] = 1
+				characters_so_far += 1
 
-			# Go through the path of character-generation states
-			for (i, state), obs in it.izip( filtered_path, sequence ):
-				# Add to a list of emissions from that state
-				try:
-					emissions[ state ].append( obs )
-				except:
-					emissions[ state ] = [ obs ]
-
-			# Go through sequential pairs to add each edge to a matrix of counts
-			for l, k in it.izip( xrange(n-1), xrange(1,n) ):
-				l = indices[ filtered_path[l][1] ] 
-				k = indices[ filtered_path[k][1] ]
-				expected_transitions[ l, k ] += 1
-
-		# Recalculate the emission distributions solely from new observations
-		visited_states = []
-		for state, emission in emissions.iteritems():
-			i = indices[ state ]
-			if i in visited_states:
-				continue
-
-			# Append all observations from all tied states
-			# Train that distribution only once, to save time.
-			visited_states.append( i )
+		# Update the emission weights matrix to include tied state information,
+		# where tied states will all have a 1 at the appropriate indexes in the
+		# matrix.
+		cdef double tied_state_probability
+		for i in xrange( total_characters ):
 			for j in xrange( self.silent_start ):
-				if self.tied[i, j] == 1 and i != j:
-					emission += emissions[ self.states[j] ]
-					visited_states.append( j )
+				tied_state_probability = 0.
+				for k in xrange( j, self.silent_start ): 
+					if self.tied[j, k] == 1:
+						tied_state_probability = pair_double_max( 
+							tied_state_probability, emission_weights[k, i] )
+				for k in xrange( j, self.silent_start ):
+					if self.tied[j, k] == 1:
+						emission_weights[k, i] = tied_state_probability
 
-			print emission
-			state.distribution.from_sample( emission )
+		cdef double [:] norm = numpy.zeros( m )
+		# Calculate the regularizing norm for each node
+		for k in xrange( m ):
+			for l in xrange( out_edges[k], out_edges[k+1] ):
+				li = self.out_transitions[l]
+				norm[k] += transition_counts[k, li] + transition_pseudocount
 
-		# Normalize the matrix of counts to log probabilities
-		row_norms = expected_transitions.sum( axis=1 )
+		# For every node, update the transitions appropriately
+		for k in xrange( m ):
+			# Recalculate each transition out from that node and update
+			# the vector of out transitions appropriately
+			if norm[k] > 0:
+				for l in xrange( out_edges[k], out_edges[k+1] ):
+					li = self.out_transitions[l]
+					self.out_transition_log_probabilities[l] = \
+						_log(transition_counts[k, li]+transition_pseudocount )-\
+						_log( norm[k] )
 
-		expected_transitions[row_norms != 0, :] = (
-			log(expected_transitions[row_norms != 0, :])  -
-			log(row_norms[row_norms != 0][:, numpy.newaxis]))
+			# Recalculate each transition in to that node and update the
+			# vector of in transitions appropriately 
+			for l in xrange( in_edges[k], in_edges[k+1] ):
+				li = self.in_transitions[l]
+				if norm[li] > 0:
+					self.in_transition_log_probabilities[l] = \
+						_log(transition_counts[li, k]+transition_pseudocount)-\
+						_log( norm[li] )
 
-		expected_transitions[row_norms == 0, :] = NEGINF
+		cdef list symbols
+		for k in xrange(self.silent_start):
+			# Re-estimate the emission distribution for every non-silent state.
+			# Take each emission weighted by the probability that we were in 
+			# this state when it came out, given that the model generated the 
+			# sequence that the symbol was part of.
+			symbols = []
+			for l in xrange( total_characters ):
+				if emission_weights[k][l] == 1.:
+					symbols.append( emitted_symbols[l] )
 
-		# Save the matrix as the new transition matrix
-		self.transition_log_probabilities = expected_transitions
+			self.states[k].distribution.from_sample( symbols )
 
 		return log_score
