@@ -1086,8 +1086,8 @@ cdef class State(object):
 		# parts[0] holds the state's name, and parts[1] holds the rest of the
 		# state information, so we can just evaluate it.
 		identity, name, state_info = parts[0], parts[1], ' '.join( parts[2:] )
-		return eval( "State( {}, name='{}', identity='{}'' )".format( 
-			state_info, name, identity )
+		return eval( "State( {}, name='{}', identity='{}' )".format( 
+			state_info, name, identity ) )
 
 cdef class Model(object):
 	"""
@@ -1411,7 +1411,7 @@ cdef class Model(object):
 		self.out_edge_count = numpy.zeros( len( self.graph.nodes() ), 
 			dtype=numpy.int32 )
 		
-		merge = merge.lower()
+		merge = merge.lower() if merge else None
 		while merge == 'all':
 			merge_count = 0
 
@@ -2684,27 +2684,16 @@ cdef class Model(object):
 			# Write each state in order by name
 			state.write(stream)
 			
-			
 		# Get transitions.
 		# Each is a tuple (from index, to index, log probability)
 		transitions = []
 		
-		# We use Numpy iterators to accomplish this.
-		# See http://docs.scipy.org/doc/numpy/reference/arrays.nditer.html
-		# We also throw out transitions that don't exist.
-		iterator = numpy.nditer(self.transition_log_probabilities, 
-			flags=["multi_index"])
-		while not iterator.finished:
-			if iterator[0] != float("-inf"):
-				# The transition is possible
-				transitions.append((iterator.multi_index[0], 
-					iterator.multi_index[1], iterator[0]))
-			iterator.iternext()
+		for k in xrange( len(self.states) ):
+			for l in xrange( self.out_edge_count[k], self.out_edge_count[k+1] ):
+				li = self.out_transitions[l]
+				log_probability = self.out_transition_log_probabilities[l] 
 
-		# Put transitions in a human-readable order. (alphabetical by from, then
-		# by to)
-		transitions.sort(key=lambda t: (self.states[t[0]].name, 
-			self.states[t[1]].name))
+				transitions.append( (k, li, log_probability) )
 			
 		for (from_index, to_index, log_probability) in transitions:
 			
@@ -2774,7 +2763,7 @@ cdef class Model(object):
 			if state != start_state and state != end_state:
 				# This state isn't already in the HMM, so add it.
 				hmm.add_state(state)
-			
+
 		# Now do the transitions (all the rest of the lines)
 		for line in stream:
 			# Pull out the from state name, to state name, and probability 
@@ -2787,10 +2776,10 @@ cdef class Model(object):
 			
 			# Look up the states and add the transition
 			hmm.add_transition(states[from_id], states[to_id], probability)
-			
+
 		# Now our HMM is done.
 		# Bake and return it.
-		hmm.bake( verbose=verbose )
+		hmm.bake( merge=None )
 		return hmm
 	
 	@classmethod
