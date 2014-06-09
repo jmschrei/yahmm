@@ -27,7 +27,7 @@ DEF SQRT_2_PI = 2.50662827463
 cdef inline double _log ( double x ):
 	return clog( x ) if x > 0 else NEGINF
 
-cdef inline double pair_double_max( double x, double y ):
+cdef inline int pair_int_max( int x, int y ):
 	return x if x > y else y
 
 cdef inline double pair_lse( double x, double y ):
@@ -1267,7 +1267,8 @@ cdef class Model(object):
 	cdef int [:] in_edge_count, in_transitions, out_edge_count, out_transitions
 	cdef double [:] in_transition_log_probabilities
 	cdef double [:] out_transition_log_probabilities
-	cdef int [:,:] tied
+	cdef int [:] tied_state_count
+	cdef int [:] tied
 	cdef int finite
 
 	def __init__(self, name=None, start=None, end=None):
@@ -1323,7 +1324,7 @@ cdef class Model(object):
 		# Put it in the graph
 		self.graph.add_node(state)
 		
-	def add_transition(self, a, b, probability):
+	def add_transition(self, a, b, probability, pseudocount=None):
 		"""
 		Add a transition from state a to state b with the given (non-log)
 		probability. Both states must be in the HMM already. self.start and
@@ -1332,8 +1333,15 @@ cdef class Model(object):
 		only when the model is baked.
 		"""
 		
+		# If a pseudocount is specified, use it, otherwise use the probability.
+		# The pseudocounts come up during training, when you want to specify
+		# custom pseudocount weighting schemes per edge, in order to make the
+		# model converge to that scheme given no observations. 
+		pseudocount = pseudocount or probability
+
 		# Add the transition
-		self.graph.add_edge(a, b, weight=log(probability))
+		self.graph.add_edge(a, b, weight=log(probability), 
+			pseudocount=pseudocount)
 		
 	def add_model(self, other):
 		"""
@@ -1559,18 +1567,43 @@ cdef class Model(object):
 
 		indices = { self.states[i]: i for i in xrange(n) }
 
-		# Create a matrix of ties, in order to allow tied-state training to
-		# take place.
-
-		self.tied = numpy.zeros(( self.silent_start, self.silent_start ),
+		# Create a sparse representation of the tied states in the model. This
+		# is done in the same way of the transition, by having a vector of
+		# counts, and a vector of the IDs that the state is tied to.
+		self.tied_state_count = numpy.zeros( self.silent_start+1, 
 			dtype=numpy.int32 )
 
-		# Go through and see if the underlying distribution objects are the
-		# same object.
 		for i in xrange( self.silent_start ):
 			for j in xrange( self.silent_start ):
-				self.tied[i, j] = self.states[i].distribution is \
-					self.states[j].distribution
+				if i == j:
+					continue
+				if self.states[i].distribution is self.states[j].distribution:
+					self.tied_state_count[i+1] += 1
+
+		# Take the cumulative sum in order to get indexes instead of counts,
+		# with the last index being the total number of ties.
+		self.tied_state_count = numpy.cumsum( self.tied_state_count,
+			dtype=numpy.int32 )
+
+		self.tied = numpy.zeros( self.tied_state_count[-1], 
+			dtype=numpy.int32 ) - 1
+
+		for i in xrange( self.silent_start ):
+			for j in xrange( self.silent_start ):
+				if i == j:
+					continue
+					
+				if self.states[i].distribution is self.states[j].distribution:
+					# Begin at the first index which belongs to state i...
+					start = self.tied_state_count[i]
+
+					# Find the first non -1 entry in order to put our index.
+					while self.tied[start] != -1:
+						start += 1
+
+					# Now that we've found a non -1 entry, put the index of the
+					# state which this state is tied to in!
+					self.tied[start] = j
 
 		# This holds numpy array indexed [a, b] to transition log probabilities 
 		# from a to b, where a and b are state indices. It starts out saying all
@@ -2277,13 +2310,7 @@ cdef class Model(object):
 				log_probability = d.log_probability( sequence[k] )
 				e[k, i] = log_probability
 
-		if self.finite == 1:
-			log_sequence_probability = f[n, self.end_index]
-		else:
-			log_sequence_probability = NEGINF
-			for i in xrange( self.silent_start ):
-				log_sequence_probability = pair_lse( log_sequence_probability, 
-					f[n, i] )
+		log_sequence_probability = self.log_probability( sequence )
 		
 		# Is the sequence impossible? If so, don't bother calculating any more.
 		if log_sequence_probability == NEGINF:
@@ -2385,6 +2412,116 @@ cdef class Model(object):
 
 		return numpy.array( transition_log_probabilities ), \
 			numpy.array( emission_weights )
+
+	def log_probability( self, sequence, path=None ):
+		'''
+		Calculate the log probability of a sequence, or alternatively a list of
+		sequences, depending on what is passed in. If sequence is a single 
+		sequence, it will return the probability of that sequence. If sequence
+		is a list of sequences, then it will return the sum of all sequences.
+		'''
+
+		# Determine if the first element of sequence is an iterable. If not,
+		# then a single sequence was passed in. Return the probability of
+		# that sequence. Otherwise, a list of sequences was passed in.
+		if not hasattr( sequence[0], '__iter__' ):
+			# Calculate the log probability of the sequence. If a path is
+			# provided, use that path. Otherwise, calculate the sum-of-all-path
+			# probability.
+			if not path:
+				return self._log_probability( numpy.array( sequence ) )
+			else:
+				return self._log_probability_of_path( 
+					numpy.array( sequence ), numpy.array( path ) )
+
+		# Since a list of sequences was passed in, rename for better clarity
+		# as to what is going on.
+		sequences = sequence 
+
+		# Start off with the sum being negative infinite, and calculate the
+		# log sum exp of all the sequences.
+		log_probability_sum = NEGINF
+
+		# Go through all of the sequences, and calculate the probability of
+		# all of the sequences.
+		for i, sequence in enumerate( sequences ):
+			# Calculate the log probability of the sequence. If a path is
+			# provided, use that path. Otherwise, calculate the sum-of-all-path
+			# probability.
+			if not path:
+				log_probability = self._log_probability( 
+					numpy.array( sequence ) )
+			else:
+				log_probability = self._log_probability_of_path(
+					numpy.array( sequence ), numpy.array( path[i] ) )
+
+			# Use log sum exp to add it to the running sum.
+			log_probability_sum = pair_lse( 
+				log_probability_sum, log_probability )
+
+		return log_probability_sum
+
+	cdef double _log_probability( self, numpy.ndarray sequence ):
+		'''
+		Calculate the probability here, in a cython optimized function.
+		'''
+
+		cdef int i
+		cdef double log_probability_sum
+		cdef double [:,:] f 
+
+		f = self.forward( sequence )
+		if self.finite == 1:
+			log_probability_sum = f[ len(sequence), self.end_index ]
+		else:
+			log_probability_sum = NEGINF
+			for i in xrange( self.silent_start ):
+				log_probability_sum = pair_lse( 
+					log_probability_sum, f[ len(sequence), i] )
+
+		return log_probability_sum
+
+	cdef double _log_probability_of_path( self, numpy.ndarray sequence,
+		State [:] path ):
+		'''
+		Calculate the probability of a sequence, given the path it took through
+		the model.
+		'''
+
+		cdef int i=0, idx, j, ji, l, li, k, ki, m=len(self.states)
+		cdef int p=len(path), n=len(sequence)
+		cdef dict indices = { self.states[i]: i for i in xrange( m ) }
+		cdef State state
+
+		cdef int [:] out_edges = self.out_edge_count
+
+		cdef double log_score = NEGINF
+
+		# Iterate over the states in the path, as the path needs to be either
+		# equal in length or longer than the sequence, depending on if there
+		# are silent states or not.
+		for j in xrange( 1, n ):
+			# Add the transition probability first, because both silent and
+			# character generating states have to do the transition. So find
+			# the index of the last state, and see if there are any out
+			# edges from that state to the current state. This operation
+			# requires time proportional to the number of edges leaving the
+			# state, due to the way the sparse representation is set up.
+			ki = indices[ path[j-1] ]
+			ji = indices[ path[j] ]
+
+			for l in xrange( out_edges[ki], out_edges[ki+1] ):
+				li = self.out_transitions[l]
+				if li == j:
+					log_score = pair_lse( log_score, 
+						self.out_transition_log_probabilities[k] )
+
+			if not path[j].is_silent():
+				log_score = pair_lse( log_score,
+					path[j].distribution.log_probability( sequence[i] ) )
+				i += 1
+
+		return log_score
 
 	def viterbi(self, sequence):
 		'''
@@ -2816,7 +2953,8 @@ cdef class Model(object):
 
 	def train( self, sequences, stop_threshold=1E-9, min_iterations=0,
 		max_iterations=None, algorithm='baum-welch', verbose=True,
-		transition_pseudocount=1, edge_inertia=0 ):
+		transition_pseudocount=1, edge_inertia=0, 
+		emitted_probability_threshold=0 ):
 		"""
 		Given a list of sequences, performs re-estimation on the model
 		parameters. The two supported algorithms are "baum-welch" and
@@ -2847,7 +2985,17 @@ cdef class Model(object):
 		if algorithm.lower() == 'labelled' or algorithm.lower() == 'labeled':
 			for i, sequence in enumerate(sequences):
 				sequences[i] = ( numpy.array( sequence[0] ), sequence[1] )
-			return self._train_labelled( sequences, transition_pseudocount )
+
+			# If calling the labelled training algorithm, then sequences is a
+			# list of tuples of sequence, path pairs, not a list of sequences.
+			# In order to get a good estimate, need to use the 
+			log_probability_sum = self.log_probability( 
+				[ seq for seq, path in sequences],
+				[ path for seq, path in sequences ] )	
+							
+			self._train_labelled( sequences, transition_pseudocount )
+		else:
+			log_probability_sum = self.log_probability( sequences )
 
 		# Cast everything as a numpy array for input into the other possible
 		# training algorithms.
@@ -2856,14 +3004,29 @@ cdef class Model(object):
 			sequences[i] = numpy.array( sequence )
 
 		if algorithm.lower() == 'viterbi':
-			return self._train_viterbi( sequences, transition_pseudocount )
-		if algorithm.lower() == 'baum-welch':
-			return self._train_baum_welch( sequences, stop_threshold,
+			self._train_viterbi( sequences, transition_pseudocount )
+
+		elif algorithm.lower() == 'baum-welch':
+			self._train_baum_welch( sequences, stop_threshold,
 				min_iterations, max_iterations, verbose, transition_pseudocount,
-				edge_inertia )
+				edge_inertia, emitted_probability_threshold )
+
+		if algorithm.lower() == 'labelled' or algorithm.lower() == 'labeled':
+			trained_log_probability_sum = self.log_probability(
+				[ seq for seq, path in sequences ],
+				[ path for seq, path in sequences ] )
+		else:
+			trained_log_probability_sum = self.log_probability( sequences )
+
+		improvement = trained_log_probability_sum - log_probability_sum
+
+		if verbose:
+			print "Total Training Improvement: ", improvement
+		return improvement
 
 	def _train_baum_welch(self, sequences, stop_threshold, min_iterations, 
-		max_iterations, verbose, transition_pseudocount, edge_inertia ):
+		max_iterations, verbose, transition_pseudocount, edge_inertia,
+		emitted_probability_threshold ):
 		"""
 		Given a list of sequences, perform Baum-Welch iterative re-estimation on
 		the model parameters.
@@ -2875,36 +3038,35 @@ cdef class Model(object):
 		Always trains for at least min_iterations.
 		"""
 
-		# What's the current log score?
-		log_score = self._train_once_baum_welch(
-			sequences, transition_pseudocount, edge_inertia )
-		# This holds how much we improve each step
-		improvement = float("+inf")
-
 		# How many iterations of training have we done (counting the first)
-		iteration = 1
+		iteration, improvement = 0, float("+inf")
+
 		while improvement > stop_threshold or iteration < min_iterations:
 			if max_iterations and iteration >= max_iterations:
 				break 
 
-			# train again and get the new score
-			new_log_score = self._train_once_baum_welch(
-				sequences, transition_pseudocount, edge_inertia )
-			
+			# If an improvement measure is wanted, then calculate the sum of
+			# the log probabilities before and after training.
+			log_probability_sum = self.log_probability( sequences )
+
+			# Perform an iteration of Baum-Welch training.
+			self._train_once_baum_welch( sequences, transition_pseudocount, 
+				edge_inertia, emitted_probability_threshold )
+
+			# Increase the iteration counter by one.
 			iteration += 1
-			
-			# Calculate improvement signed, so we don't keep going if we 
-			# decrease score
-			improvement = new_log_score - log_score
-			log_score = new_log_score
+
+			# Calculate the improvement yielded by that iteration of
+			# Baum-Welch.
+			trained_log_probability_sum = self.log_probability( sequences )
+			improvement = trained_log_probability_sum - log_probability_sum
 
 			if verbose:
 				print( "Training improvement: {}".format(improvement) )
 			
-		return log_score
-
 	cdef double _train_once_baum_welch(self, numpy.ndarray sequences, 
-		double transition_pseudocount, double edge_inertia ):
+		double transition_pseudocount, double edge_inertia,
+		double emitted_probability_threshold ):
 		"""
 		Implements one iteration of the Baum-Welch algorithm, as described in:
 		http://www.cs.cmu.edu/~durand/03-711/2006/Lectures/hmm-bw.pdf
@@ -2918,7 +3080,7 @@ cdef class Model(object):
 		cdef numpy.ndarray emitted_symbols
 		cdef double [:,:] emission_weights
 		cdef numpy.ndarray sequence
-		cdef double log_score, log_sequence_probability, weight
+		cdef double log_sequence_probability, weight
 		cdef double equence_probability_sum
 		cdef int k, i, l, li, m = len( self.states ), n, observation=0
 		cdef int characters_so_far = 0
@@ -2944,9 +3106,6 @@ cdef class Model(object):
 		# This is a list lists of symbol weights, by state number, for 
 		# non-silent states
 		emission_weights = numpy.zeros(( self.silent_start, total_characters ))
-			
-		# Sum up the score to return
-		log_score = NEGINF
 
 		for sequence in sequences:
 			n = len( sequence )
@@ -2957,8 +3116,8 @@ cdef class Model(object):
 					e[k, i] = self.states[i].distribution.log_probability( 
 						sequence[k] )
 
-			# Get the overall log probability of the sequence, and fill in self.f
-
+			# Get the overall log probability of the sequence, and fill in the
+			# the forward DP matrix.
 			f = self.forward( sequence )
 			if self.finite == 1:
 				log_sequence_probability = f[ n, self.end_index ]
@@ -2974,10 +3133,7 @@ cdef class Model(object):
 				print( "Warning: skipped impossible sequence {}".format(sequence) )
 				continue
 				
-			# Add to the score
-			log_score = pair_lse( log_score, log_sequence_probability )
-				
-			# Fill in self.b too
+			# Fill in the backward DP matrix.
 			b = self.backward(sequence)
 
 			# Save the sequence in the running list of all emitted symbols
@@ -3068,20 +3224,6 @@ cdef class Model(object):
 		# We now have expected_transitions taking into account all sequences.
 		# And a list of all emissions, and a weighting of each emission for each
 		# state
-
-		# Connect the data of tied states, to ensure enough information comes
-		# in to train them.
-		cdef double tied_state_probability_sum
-		for i in xrange( total_characters ):
-			for j in xrange( self.silent_start ):
-				tied_state_probability_sum = 0
-				for k in xrange( self.silent_start ): 
-					if self.tied[j, k] == 1:
-						tied_state_probability_sum += emission_weights[k, i] 
-				for k in xrange( self.silent_start ):
-					if self.tied[j, k] == 1:
-						emission_weights[k, i] = tied_state_probability_sum
-
 		# Normalize transition expectations per row (so it becomes transition 
 		# probabilities)
 		# See http://stackoverflow.com/a/8904762/402891
@@ -3103,9 +3245,6 @@ cdef class Model(object):
 			if norm[k] > 0:
 				for l in xrange( out_edges[k], out_edges[k+1] ):
 					li = self.out_transitions[l]
-					#self.out_transition_log_probabilities[l] = \
-					#	_log(expected_transitions[k, li]+transition_pseudocount) - \
-					#	_log( norm[k] )
 					probability = ( expected_transitions[k, li] + \
 						transition_pseudocount ) / norm[k]
 					self.out_transition_log_probabilities[l] = clog(
@@ -3122,21 +3261,64 @@ cdef class Model(object):
 					self.in_transition_log_probabilities[l] = clog( 
 						cexp( self.in_transition_log_probabilities[l] ) *
 						edge_inertia + probability * ( 1 - edge_inertia ) ) 
-				
+
+		# Define several helped variables.
+		cdef double tied_state_probability
+		cdef int [:] visited = numpy.zeros( self.silent_start,
+			dtype=numpy.int32 )
+		cdef int [:] tied_states = self.tied_state_count
+		cdef list symbols, weights
+
 		for k in xrange(self.silent_start):
+			# If this distribution has already been trained because it is tied
+			# to an earlier state, don't bother retraining it as that would
+			# waste time.
+			if visited[k] == 1:
+				continue
+			visited[k] = 1
+
 			# Re-estimate the emission distribution for every non-silent state.
 			# Take each emission weighted by the probability that we were in 
 			# this state when it came out, given that the model generated the 
-			# sequence that the symbol was part of.
-			self.states[k].distribution.from_sample(emitted_symbols, 
-				weights=emission_weights[k])
+			# sequence that the symbol was part of. Take into account tied
+			# states by only training that distribution one time, since many
+			# states are pointing to the same distribution object.
+			symbols = []
+			weights = []
 
-		# Now we have updated out transition log probabilities, and our emission
-		# distributions.
-		# Return the log total probability of all sequences (log score)
-		return log_score
+			for i in xrange( total_characters ):
+				# Start off by assuming the probability for this character is
+				# the probability in the emitted_symbols list.
+				tied_state_probability = emission_weights[k, i]
 
-	cdef double _train_viterbi( self, numpy.ndarray sequences, 
+				# Go through and see if this symbol was emitted in any of the
+				# other states, and indicate they have all been visited.
+				for l in xrange( tied_states[k], tied_states[k+1] ):
+					li = self.tied[l]
+					tied_state_probability += emission_weights[li, i]
+					visited[li] = 1
+
+				# Now go back and update each of those entries
+				for l in xrange( tied_states[k], tied_states[k+1] ):
+					li = self.tied[l]
+					emission_weights[li, i] = tied_state_probability
+				
+				# If the symbol was emitted by any of the states, then add it
+				# to the list of symbols used to train the underlying
+				# distribution.
+				if emission_weights[k, i] > emitted_probability_threshold:
+					symbols.append( emitted_symbols[i] )
+					weights.append( emission_weights[k, i])
+
+			# Now train this distribution on the symbols collected. If there
+			# are tied states, this will be done once per set of tied states
+			# in order to save time.
+			print self.states[k].name, symbols, weights
+			self.states[k].distribution.from_sample( symbols, 
+				weights=weights )
+
+
+	cdef void _train_viterbi( self, numpy.ndarray sequences, 
 		double transition_pseudocount ):
 		"""
 		Performs a simple viterbi training algorithm. Each sequence is tagged
@@ -3161,10 +3343,10 @@ cdef class Model(object):
 
 			sequence_path_pairs.append( (sequence, sequence_path) )
 
-		return self._train_labelled( sequence_path_pairs, 
+		self._train_labelled( sequence_path_pairs, 
 			transition_pseudocount )
 
-	cdef double _train_labelled( self, list sequences,
+	cdef void _train_labelled( self, list sequences,
 		double transition_pseudocount ):
 		"""
 		Perform training on a set of sequences where the state path is known,
@@ -3172,13 +3354,11 @@ cdef class Model(object):
 		form (sequence, labels).
 		"""
 
-		cdef int i, j, m=len(self.states), n, a, b
+		cdef int i, j, m=len(self.states), n, a, b, k, l, li
 		cdef int characters_so_far=0, total_characters=0
 		cdef numpy.ndarray sequence 
 		cdef list labels
 		cdef State label
-		cdef double log_score, log_sequence_probability
-		cdef double [:,:] f
 
 		# Get the total number of characters emitted by going through each
 		# sequence and getting the length
@@ -3190,8 +3370,9 @@ cdef class Model(object):
 		cdef int [:,:] transition_counts
 		transition_counts = numpy.zeros((m,m), dtype=numpy.int32)
 
-		cdef double [:,:] emission_weights
-		emission_weights = numpy.zeros( (self.silent_start,total_characters) )
+		cdef int [:,:] emission_weights
+		emission_weights = numpy.zeros( (self.silent_start,total_characters),
+			dtype=numpy.int32 )
 
 		# Keep track of all of the symbols emitted
 		cdef numpy.ndarray emitted_symbols
@@ -3204,26 +3385,11 @@ cdef class Model(object):
 		cdef dict indices = { self.states[i]: i for i in xrange( m ) }
 
 		# Keep track of the log score across all sequences 
-		log_score = NEGINF
-
 		for sequence, labels in sequences:
 			n = len(sequence)
 
 			for i in xrange( n ):
 				emitted_symbols[characters_so_far+i] = sequence[i]
-
-			# Calculate the log probability of this sequence
-			f = self.forward( sequence )
-			if self.finite == 1:
-				log_sequence_probability = f[ n, self.end_index ]
-			else:
-				log_sequence_probability = NEGINF
-				for i in xrange( self.silent_start ):
-					log_sequence_probability = pair_lse( f[n, i],
-						log_sequence_probability )
-
-			# Add it to the log score of all sequences
-			log_score = pair_lse( log_score, log_sequence_probability )
 
 			# Keep track of the number of transitions from one state to another
 			transition_counts[ self.start_index, indices[labels[0]] ] += 1
@@ -3240,22 +3406,6 @@ cdef class Model(object):
 				a = indices[label]
 				emission_weights[a, characters_so_far] = 1
 				characters_so_far += 1
-
-		# Update the emission weights matrix to include tied state information,
-		# where tied states will all have a 1 at the appropriate indexes in the
-		# matrix.
-		cdef double tied_state_probability
-		for i in xrange( total_characters ):
-			for j in xrange( self.silent_start ):
-				tied_state_probability = 0.
-				for k in xrange( j, self.silent_start ): 
-					if self.tied[j, k] == 1:
-						tied_state_probability = pair_double_max( 
-							tied_state_probability, emission_weights[k, i] )
-				for k in xrange( j, self.silent_start ):
-					if self.tied[j, k] == 1:
-						emission_weights[k, i] = tied_state_probability
-
 		cdef double [:] norm = numpy.zeros( m )
 		# Calculate the regularizing norm for each node
 		for k in xrange( m ):
@@ -3283,17 +3433,49 @@ cdef class Model(object):
 						_log(transition_counts[li, k]+transition_pseudocount)-\
 						_log( norm[li] )
 
+		# Define several helped variables.
+		cdef int tied_state_probability
+		cdef int [:] visited = numpy.zeros( self.silent_start,
+			dtype=numpy.int32 )
+		cdef int [:] tied_states = self.tied_state_count
 		cdef list symbols
+
 		for k in xrange(self.silent_start):
+			# If this distribution has already been trained because it is tied
+			# to an earlier state, don't bother retraining it as that would
+			# waste time.
+			if visited[k] == 1:
+				continue
+			visited[k] = 1
+
 			# Re-estimate the emission distribution for every non-silent state.
 			# Take each emission weighted by the probability that we were in 
 			# this state when it came out, given that the model generated the 
-			# sequence that the symbol was part of.
+			# sequence that the symbol was part of. Take into account tied
+			# states by only training that distribution one time, since many
+			# states are pointing to the same distribution object.
 			symbols = []
-			for l in xrange( total_characters ):
-				if emission_weights[k][l] == 1.:
-					symbols.append( emitted_symbols[l] )
 
+			for i in xrange( total_characters ):
+				# Start off by assuming the probability for this character is
+				# the probability in the emitted_symbols list.
+				tied_state_probability = emission_weights[k][i]
+
+				# Go through and see if this symbol was emitted in any of the
+				# other states, and indicate they have all been visited.
+				for l in xrange( tied_states[k], tied_states[k+1] ):
+					li = self.tied[l]
+					tied_state_probability = pair_int_max( 
+						tied_state_probability, emission_weights[li, i] )
+					visited[li] = 1
+				
+				# If the symbol was emitted by any of the states, then add it
+				# to the list of symbols used to train the underlying
+				# distribution.
+				if tied_state_probability == 1:
+					symbols.append( emitted_symbols[i] )
+
+			# Now train this distribution on the symbols collected. If there
+			# are tied states, this will be done once per set of tied states
+			# in order to save time.
 			self.states[k].distribution.from_sample( symbols )
-
-		return log_score
