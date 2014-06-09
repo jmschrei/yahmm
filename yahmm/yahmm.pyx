@@ -1814,6 +1814,7 @@ cdef class Model(object):
 		
 		# Done! Return either emissions, or emissions and path.
 		if path:
+			sequence_path.append( self.end )
 			return [emissions, sequence_path]
 		return emissions
 
@@ -2488,19 +2489,19 @@ cdef class Model(object):
 		the model.
 		'''
 
-		cdef int i=0, idx, j, ji, l, li, k, ki, m=len(self.states)
+		cdef int i=0, idx, j, ji, l, li, ki, m=len(self.states)
 		cdef int p=len(path), n=len(sequence)
 		cdef dict indices = { self.states[i]: i for i in xrange( m ) }
 		cdef State state
 
 		cdef int [:] out_edges = self.out_edge_count
 
-		cdef double log_score = NEGINF
+		cdef double log_score = 0
 
 		# Iterate over the states in the path, as the path needs to be either
 		# equal in length or longer than the sequence, depending on if there
 		# are silent states or not.
-		for j in xrange( 1, n ):
+		for j in xrange( 1, p ):
 			# Add the transition probability first, because both silent and
 			# character generating states have to do the transition. So find
 			# the index of the last state, and see if there are any out
@@ -2512,13 +2513,17 @@ cdef class Model(object):
 
 			for l in xrange( out_edges[ki], out_edges[ki+1] ):
 				li = self.out_transitions[l]
-				if li == j:
-					log_score = pair_lse( log_score, 
-						self.out_transition_log_probabilities[k] )
+				if li == ji:
+					log_score += self.out_transition_log_probabilities[l]
+					break
+				if l == out_edges[ki+1]-1:
+					return NEGINF
 
+			# If the state is not silent, then add the log probability of
+			# emitting that observation from this state.
 			if not path[j].is_silent():
-				log_score = pair_lse( log_score,
-					path[j].distribution.log_probability( sequence[i] ) )
+				log_score += path[j].distribution.log_probability( 
+					sequence[i] )
 				i += 1
 
 		return log_score
@@ -3297,23 +3302,17 @@ cdef class Model(object):
 					li = self.tied[l]
 					tied_state_probability += emission_weights[li, i]
 					visited[li] = 1
-
-				# Now go back and update each of those entries
-				for l in xrange( tied_states[k], tied_states[k+1] ):
-					li = self.tied[l]
-					emission_weights[li, i] = tied_state_probability
 				
 				# If the symbol was emitted by any of the states, then add it
 				# to the list of symbols used to train the underlying
 				# distribution.
-				if emission_weights[k, i] > emitted_probability_threshold:
+				if tied_state_probability > emitted_probability_threshold:
 					symbols.append( emitted_symbols[i] )
-					weights.append( emission_weights[k, i])
+					weights.append( tied_state_probability )
 
 			# Now train this distribution on the symbols collected. If there
 			# are tied states, this will be done once per set of tied states
 			# in order to save time.
-			print self.states[k].name, symbols, weights
 			self.states[k].distribution.from_sample( symbols, 
 				weights=weights )
 
