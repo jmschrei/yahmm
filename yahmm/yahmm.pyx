@@ -2244,7 +2244,7 @@ cdef class Model(object):
 		# Return the entire table.
 		return b
 
-	def forward_backward( self, sequence ):
+	def forward_backward( self, sequence, tie=True ):
 		"""
 		Implements the forward-backward algorithm. This is the sum-of-all-paths
 		log probability that you start at the beginning of the sequence, align
@@ -2277,9 +2277,9 @@ cdef class Model(object):
 			http://en.wikipedia.org/wiki/Forward%E2%80%93backward_algorithm
 		"""
 
-		return self._forward_backward( numpy.array( sequence ) )
+		return self._forward_backward( numpy.array( sequence ), tie )
 
-	cdef tuple _forward_backward( self, numpy.ndarray sequence ):
+	cdef tuple _forward_backward( self, numpy.ndarray sequence, int tie ):
 		"""
 		Actually perform the math here.
 		"""
@@ -2289,13 +2289,13 @@ cdef class Model(object):
 		cdef double [:,:] e, f, b
 		cdef double [:,:] expected_transitions = numpy.zeros((m, m))
 		cdef double [:,:] emission_weights = numpy.zeros((n, self.silent_start))
-		cdef double [:,:] transition_log_probabilities
 
 		cdef double log_sequence_probability, log_probability
 		cdef double log_transition_emission_probability_sum
-		cdef double tied_state_probability_sum, norm
+		cdef double norm
 
-		cdef int [:] out_edges = self.out_edge_count 
+		cdef int [:] out_edges = self.out_edge_count
+		cdef int [:] tied_states = self.tied_state_count
 
 		cdef State s
 		cdef Distribution d 
@@ -2311,7 +2311,6 @@ cdef class Model(object):
 		f = self.forward( sequence )
 		b = self.backward( sequence )
 
-		i=0; j=0; k=0; l=0; ki=0; li=0;
 		# Calculate the emission table
 		for k in xrange( n ):
 			for i in xrange( self.silent_start ):
@@ -2320,7 +2319,13 @@ cdef class Model(object):
 				log_probability = d.log_probability( sequence[k] )
 				e[k, i] = log_probability
 
-		log_sequence_probability = self.log_probability( sequence )
+		if self.finite == 1:
+			log_sequence_probability = f[ n, self.end_index ]
+		else:
+			log_sequence_probability = NEGINF
+			for i in xrange( self.silent_start ):
+				log_sequence_probability = pair_lse( 
+					log_sequence_probability, f[ i, self.end_index ] )
 		
 		# Is the sequence impossible? If so, don't bother calculating any more.
 		if log_sequence_probability == NEGINF:
@@ -2405,6 +2410,46 @@ cdef class Model(object):
 
 					emission_weights[i,k] = f[i+1, k] + b[i+1, k] - \
 						log_sequence_probability
+		
+		cdef int [:] visited
+		cdef double tied_state_log_probability
+		if tie == 1:
+			visited = numpy.zeros( self.silent_start, dtype=numpy.int32 )
+
+			for k in xrange( self.silent_start ):
+				# Check to see if we have visited this a state within the set of
+				# tied states this state belongs yet. If not, this is the first
+				# state and we can calculate the tied probabilities here.
+				if visited[k] == 1:
+					continue
+				visited[k] = 1
+
+				# Set that we have visited all of the other members of this set
+				# of tied states.
+				for l in xrange( tied_states[k], tied_states[k+1] ):
+					li = self.tied[l]
+					visited[li] = 1
+
+				for i in xrange( n ):
+					# Begin the probability sum with the log probability of 
+					# being in the current state.
+					tied_state_log_probability = emission_weights[i, k]
+
+					# Go through all the states this state is tied with, and
+					# add up the probability of being in any of them, and
+					# updated the visited list.
+					for l in xrange( tied_states[k], tied_states[k+1] ):
+						li = self.tied[l]
+						tied_state_log_probability = pair_lse( 
+							tied_state_log_probability, emission_weights[i, li] )
+
+					# Now update them with the retrieved value
+					for l in xrange( tied_states[k], tied_states[k+1] ):
+						li = self.tied[l]
+						emission_weights[i, li] = tied_state_log_probability
+
+					# Update the initial state we started with
+					emission_weights[i, k] = tied_state_log_probability
 
 		return numpy.array( expected_transitions ), \
 			numpy.array( emission_weights )
@@ -2746,25 +2791,146 @@ cdef class Model(object):
 		WARNING: This may produce impossible sequences.
 		"""
 
-		transition_log_probabilities, emission_weights = self.forward_backward(
+		return self._map( numpy.array( sequence ) )
+
+	
+	cdef tuple _map( self, numpy.ndarray sequence ):
+		"""
+		Actually perform the math here. Instead of calling forward-backward
+		to get the emission weights, it's calculated here so that time isn't
+		wasted calculating the transition counts. 
+		"""
+
+		cdef int i, k, l, li
+		cdef int m=len(self.states), n=len(sequence)
+		cdef double [:,:] f, b
+		cdef double [:,:] emission_weights = numpy.zeros((n, self.silent_start))
+		cdef int [:] tied_states = self.tied_state_count
+
+		cdef double log_sequence_probability
+
+
+		# Fill in both the F and B DP matrices.
+		f = self.forward( sequence )
+		b = self.backward( sequence )
+
+		# Find out the probability of the sequence
+		if self.finite == 1:
+			log_sequence_probability = f[ n, self.end_index ]
+		else:
+			log_sequence_probability = NEGINF
+			for i in xrange( self.silent_start ):
+				log_sequence_probability = pair_lse( 
+					log_sequence_probability, f[ i, self.end_index ] )
+		
+		# Is the sequence impossible? If so, don't bother calculating any more.
+		if log_sequence_probability == NEGINF:
+			print( "Warning: Sequence is impossible." )
+			return ( None, None )
+
+		for k in xrange( m ):				
+			if k < self.silent_start:				  
+				for i in xrange( n ):
+					# For each symbol that came out
+					# What's the weight of this symbol for that state?
+					# Probability that we emit index characters and then 
+					# transition to state l, and that from state l we  
+					# continue on to emit len(sequence) - (index + 1) 
+					# characters, divided by the probability of the 
+					# sequence under the model.
+					# According to http://www1.icsi.berkeley.edu/Speech/
+					# docs/HTKBook/node7_mn.html, we really should divide by
+					# sequence probability.
+					emission_weights[i,k] = f[i+1, k] + b[i+1, k] - \
+						log_sequence_probability
+		
+		cdef int [:] visited
+		cdef double tied_state_log_probability
+		visited = numpy.zeros( self.silent_start, dtype=numpy.int32 )
+
+		for k in xrange( self.silent_start ):
+			# Check to see if we have visited this a state within the set of
+			# tied states this state belongs yet. If not, this is the first
+			# state and we can calculate the tied probabilities here.
+			if visited[k] == 1:
+				continue
+			visited[k] = 1
+
+			# Set that we have visited all of the other members of this set
+			# of tied states.
+			for l in xrange( tied_states[k], tied_states[k+1] ):
+				li = self.tied[l]
+				visited[li] = 1
+
+			for i in xrange( n ):
+				# Begin the probability sum with the log probability of 
+				# being in the current state.
+				tied_state_log_probability = emission_weights[i, k]
+
+				# Go through all the states this state is tied with, and
+				# add up the probability of being in any of them, and
+				# updated the visited list.
+				for l in xrange( tied_states[k], tied_states[k+1] ):
+					li = self.tied[l]
+					tied_state_log_probability = pair_lse( 
+						tied_state_log_probability, emission_weights[i, li] )
+
+				# Now update them with the retrieved value
+				for l in xrange( tied_states[k], tied_states[k+1] ):
+					li = self.tied[l]
+					emission_weights[i, li] = tied_state_log_probability
+
+				# Update the initial state we started with
+				emission_weights[i, k] = tied_state_log_probability
+
+		cdef list path = [ ( self.start_index, self.start ) ]
+		cdef double maximum_emission_weight
+		cdef int maximum_index
+
+		for k in xrange( n ):
+			maximum_index = -1
+			maximum_emission_weight = NEGINF
+
+			for l in xrange( self.silent_start ):
+				if emission_weights[k, l] > maximum_emission_weight:
+					maximum_emission_weight = emission_weights[k, l]
+					maximum_index = l
+
+			path.append( ( maximum_index, self.states[maximum_index] ) )
+
+		path.append( ( self.end_index, self.end ) )
+
+		return 0, path
+	
+	cdef tuple _maximum_a_posteriori( self, numpy.ndarray sequence ):
+		"""
+		Actually perform the traceback here.
+		"""
+
+		cdef int i, j, n=len(sequence), m=len(self.states), maximum_index
+		cdef double [:,:] expected_transitions
+		cdef double [:,:] emission_weights
+		cdef double maximum_emission_weight
+
+		cdef list path = [ ( self.start_index, self.start ) ]
+		# Unpack the forward-backward matricies
+		expected_transitions, emission_weights = self.forward_backward( 
 			sequence )
 
-		# Calculate the index of the sum-of-all-paths log likelihood for all
-		# observations, providing the maximum a posteriori path. 
-		arg_max = numpy.argmax( emission_weights[:,:self.silent_start], axis=1 )
+		for i in xrange( n ):
+			maximum_index = -1
+			maximum_emission_weight = NEGINF
 
-		# The log likelihood of the decoding is the joint of the log likelihood
-		# of all states along the path. 
-		log_likelihood = numpy.sum( numpy.max( emission_weights, axis=1 ) )
-		
-		# Convert to the index, state tuple 
-		path = [ ( i, self.states[idx] ) for i, idx in enumerate( arg_max ) ]
+			for j in xrange( self.silent_start ):
+				if emission_weights[i, j] > maximum_emission_weight:
+					maximum_emission_weight = emission_weights[i, j]
+					maximum_index = j
 
-		if self.finite == 1:
-			# If the path is finite, add the end state to the path
-			path.append( ( self.end_index, self.end ) )
+			path.append( ( maximum_index, self.states[maximum_index] ) )
 
-		return log_likelihood, path
+		path.append( ( self.end_index, self.end ) )
+
+		return 0, path
 
 	def write(self, stream):
 		"""
