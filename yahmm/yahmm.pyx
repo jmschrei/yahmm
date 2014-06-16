@@ -2844,64 +2844,32 @@ cdef class Model(object):
 					# sequence probability.
 					emission_weights[i,k] = f[i+1, k] + b[i+1, k] - \
 						log_sequence_probability
-		
-		cdef int [:] visited
-		cdef double tied_state_log_probability
-		visited = numpy.zeros( self.silent_start, dtype=numpy.int32 )
-
-		for k in xrange( self.silent_start ):
-			# Check to see if we have visited this a state within the set of
-			# tied states this state belongs yet. If not, this is the first
-			# state and we can calculate the tied probabilities here.
-			if visited[k] == 1:
-				continue
-			visited[k] = 1
-
-			# Set that we have visited all of the other members of this set
-			# of tied states.
-			for l in xrange( tied_states[k], tied_states[k+1] ):
-				li = self.tied[l]
-				visited[li] = 1
-
-			for i in xrange( n ):
-				# Begin the probability sum with the log probability of 
-				# being in the current state.
-				tied_state_log_probability = emission_weights[i, k]
-
-				# Go through all the states this state is tied with, and
-				# add up the probability of being in any of them, and
-				# updated the visited list.
-				for l in xrange( tied_states[k], tied_states[k+1] ):
-					li = self.tied[l]
-					tied_state_log_probability = pair_lse( 
-						tied_state_log_probability, emission_weights[i, li] )
-
-				# Now update them with the retrieved value
-				for l in xrange( tied_states[k], tied_states[k+1] ):
-					li = self.tied[l]
-					emission_weights[i, li] = tied_state_log_probability
-
-				# Update the initial state we started with
-				emission_weights[i, k] = tied_state_log_probability
 
 		cdef list path = [ ( self.start_index, self.start ) ]
 		cdef double maximum_emission_weight
+		cdef double log_probability_sum = 0
 		cdef int maximum_index
 
+		# Go through each symbol and determine what the most likely state
+		# that it came from is.
 		for k in xrange( n ):
 			maximum_index = -1
 			maximum_emission_weight = NEGINF
 
+			# Go through each hidden state and see which one has the maximal
+			# weight for emissions. Tied states are not taken into account
+			# here, because we are not performing training.
 			for l in xrange( self.silent_start ):
 				if emission_weights[k, l] > maximum_emission_weight:
 					maximum_emission_weight = emission_weights[k, l]
 					maximum_index = l
 
 			path.append( ( maximum_index, self.states[maximum_index] ) )
+			log_probability_sum += maximum_emission_weight 
 
 		path.append( ( self.end_index, self.end ) )
 
-		return 0, path
+		return log_probability_sum, path
 
 	def write(self, stream):
 		"""
