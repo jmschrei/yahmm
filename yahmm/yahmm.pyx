@@ -991,8 +991,9 @@ cdef class State(object):
 	cdef public Distribution distribution
 	cdef public str name
 	cdef public str identity
+	cdef public double weight
 
-	def __init__(self, distribution, name=None, identity=None ):
+	def __init__(self, distribution, name=None, weight=None, identity=None ):
 		"""
 		Make a new State emitting from the given distribution. If distribution 
 		is None, this state does not emit anything. A name, if specified, will 
@@ -1013,6 +1014,8 @@ cdef class State(object):
 			self.identity = str(identity)
 		else:
 			self.identity = str(id(self))
+
+		self.weight = weight or 1.
 
 	def is_silent(self):
 		"""
@@ -1269,6 +1272,7 @@ cdef class Model(object):
 	cdef double [:] in_transition_pseudocounts
 	cdef double [:] out_transition_log_probabilities
 	cdef double [:] out_transition_pseudocounts
+	cdef double [:] state_weights
 	cdef int [:] tied_state_count
 	cdef int [:] tied
 	cdef int finite
@@ -1608,6 +1612,11 @@ cdef class Model(object):
 					# state which this state is tied to in!
 					self.tied[start] = j
 
+		# Unpack the state weights
+		self.state_weights = numpy.zeros( self.silent_start )
+		for i in xrange( self.silent_start ):
+			self.state_weights[i] = clog( self.states[i].weight )
+
 		# This holds numpy array indexed [a, b] to transition log probabilities 
 		# from a to b, where a and b are state indices. It starts out saying all
 		# transitions are impossible.
@@ -1886,10 +1895,8 @@ cdef class Model(object):
 		e = cvarray( shape=(n,self.silent_start), itemsize=D_SIZE, format='d') 
 		for k in xrange( n ):
 			for i in xrange( self.silent_start ):
-				s = <State>self.states[i]
-				d = <Distribution>(s.distribution)
-				log_probability = d.log_probability( sequence[k] )
-				e[k, i] = log_probability
+				e[k, i] = self.states[i].distribution.log_probability(
+					sequence[k] ) + self.state_weights[i]
 
 		# We must start in the start state, having emitted 0 symbols        
 		for i in xrange(m):
@@ -2058,10 +2065,8 @@ cdef class Model(object):
 		# Calculate the emission table
 		for k in xrange( n ):
 			for i in xrange( self.silent_start ):
-				s = <State>self.states[i]
-				d = <Distribution>(s.distribution)
-				log_probability = d.log_probability( sequence[k] )
-				e[k, i] = log_probability
+				e[k, i] = self.states[i].distribution.log_probability(
+					sequence[k] ) + self.state_weights[i]
 
 		# We must end in the end state, having emitted len(sequence) symbols
 		if self.finite == 1:
@@ -2314,10 +2319,8 @@ cdef class Model(object):
 		# Calculate the emission table
 		for k in xrange( n ):
 			for i in xrange( self.silent_start ):
-				s = <State>self.states[i]
-				d = <Distribution>(s.distribution)
-				log_probability = d.log_probability( sequence[k] )
-				e[k, i] = log_probability
+				e[k, i] = self.states[i].distribution.log_probability(
+					sequence[k] ) + self.state_weights[i]
 
 		if self.finite == 1:
 			log_sequence_probability = f[ n, self.end_index ]
@@ -2568,7 +2571,7 @@ cdef class Model(object):
 
 		return log_score
 
-	def viterbi(self, sequence):
+	def viterbi( self, sequence ):
 		'''
 		Run the Viterbi algorithm on the sequence given the model. This finds
 		the ML path of hidden states given the sequence. Returns a tuple of the
@@ -2634,10 +2637,8 @@ cdef class Model(object):
 
 		for k in xrange( n ):
 			for i in xrange( self.silent_start ):
-				s = <State>self.states[i]
-				d = <Distribution>(s.distribution)
-				p = d.log_probability( sequence[k] )
-				e[k, i] = p
+				e[k, i] = self.states[i].distribution.log_probability( 
+					sequence[k] ) + self.state_weights[i]
 
 		# We catch when we trace back to (0, self.start_index), so we don't need
 		# a traceback there.
@@ -2791,10 +2792,10 @@ cdef class Model(object):
 		WARNING: This may produce impossible sequences.
 		"""
 
-		return self._map( numpy.array( sequence ) )
+		return self._maximum_a_posteriori( numpy.array( sequence ) )
 
 	
-	cdef tuple _map( self, numpy.ndarray sequence ):
+	cdef tuple _maximum_a_posteriori( self, numpy.ndarray sequence ):
 		"""
 		Actually perform the math here. Instead of calling forward-backward
 		to get the emission weights, it's calculated here so that time isn't
@@ -2895,36 +2896,6 @@ cdef class Model(object):
 				if emission_weights[k, l] > maximum_emission_weight:
 					maximum_emission_weight = emission_weights[k, l]
 					maximum_index = l
-
-			path.append( ( maximum_index, self.states[maximum_index] ) )
-
-		path.append( ( self.end_index, self.end ) )
-
-		return 0, path
-	
-	cdef tuple _maximum_a_posteriori( self, numpy.ndarray sequence ):
-		"""
-		Actually perform the traceback here.
-		"""
-
-		cdef int i, j, n=len(sequence), m=len(self.states), maximum_index
-		cdef double [:,:] expected_transitions
-		cdef double [:,:] emission_weights
-		cdef double maximum_emission_weight
-
-		cdef list path = [ ( self.start_index, self.start ) ]
-		# Unpack the forward-backward matricies
-		expected_transitions, emission_weights = self.forward_backward( 
-			sequence )
-
-		for i in xrange( n ):
-			maximum_index = -1
-			maximum_emission_weight = NEGINF
-
-			for j in xrange( self.silent_start ):
-				if emission_weights[i, j] > maximum_emission_weight:
-					maximum_emission_weight = emission_weights[i, j]
-					maximum_index = j
 
 			path.append( ( maximum_index, self.states[maximum_index] ) )
 
@@ -3289,7 +3260,7 @@ cdef class Model(object):
 			for k in xrange( n ):
 				for i in xrange( self.silent_start ):
 					e[k, i] = self.states[i].distribution.log_probability( 
-						sequence[k] )
+						sequence[k] ) * self.state_weights[i]
 
 			# Get the overall log probability of the sequence, and fill in the
 			# the forward DP matrix.
