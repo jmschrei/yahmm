@@ -200,7 +200,7 @@ cdef class NormalDistribution(Distribution):
 	A normal distribution based on a mean and standard deviation.
 	"""
 
-	def __init__(self, mean, std):
+	def __init__( self, mean, std ):
 		"""
 		Make a new Normal distribution with the given mean mean and standard 
 		deviation std.
@@ -210,7 +210,7 @@ cdef class NormalDistribution(Distribution):
 		self.parameters = [mean, std]
 		self.name = "NormalDistribution"
 
-	def log_probability(self, symbol, epsilon=1E-4):
+	def log_probability( self, symbol, epsilon=1E-4 ):
 		"""
 		What's the probability of the given float under this distribution?
 		
@@ -225,17 +225,17 @@ cdef class NormalDistribution(Distribution):
 		Do the actual math here.
 		"""
 
-		cdef double mu = self.parameters[0], theta = self.parameters[1]
-		if theta == 0.0:
+		cdef double mu = self.parameters[0], sigma = self.parameters[1]
+		if sigma == 0.0:
 			if abs( symbol - mu ) < epsilon:
 				return 0
 			else:
 				return NEGINF
   
-		return _log( 1.0 / ( theta * SQRT_2_PI ) ) - ((symbol - mu) ** 2) /\
-			(2 * theta ** 2)
+		return _log( 1.0 / ( sigma * SQRT_2_PI ) ) - ((symbol - mu) ** 2) /\
+			(2 * sigma ** 2)
 			
-	def sample(self):
+	def sample( self ):
 		"""
 		Sample from this normal distribution and return the value sampled.
 		"""
@@ -243,7 +243,7 @@ cdef class NormalDistribution(Distribution):
 		# This uses the same parameterization
 		return random.normalvariate(*self.parameters)
 		
-	def from_sample(self, items, weights=None, min_std=0.01):
+	def from_sample( self, items, weights=None, min_std=0.01 ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -928,14 +928,6 @@ cdef class MixtureDistribution( Distribution ):
 		self.parameters = [ distributions, self.weights ]
 		self.name = "MixtureDistribution"
 
-	def __str__(self):
-		"""
-		Represent this distribution in a human-readable form.
-		"""
-		
-		return "{}({}, {})".format(self.name, map(str, self.parameters[0]),
-			str(self.parameters[1]) )
-
 	def log_probability( self, symbol ):
 		"""
 		What's the probability of a given float under this mixture? It's
@@ -970,17 +962,58 @@ cdef class MixtureDistribution( Distribution ):
 
 		raise NotImplementedError
 
-	def write(self, stream):
+cdef class MultivariateDistribution( Distribution ):
+	"""
+	Allows you to create a multivariate distribution, where each distribution
+	is independent of the others. Distributions can be any type, such as
+	having an exponential represent the duration of an event, and a normal
+	represent the mean of that event. Observations must now be tuples of
+	a length equal to the number of distributions passed in.
+
+	s1 = MultivariateDistribution([ ExponentialDistribution( 0.1 ), 
+									NormalDistribution( 5, 2 ) ])
+	s1.log_probability( (5, 2 ) )
+	"""
+
+	def __init__( self, distributions ):
 		"""
-		Write a line to the stream that can be used to reconstruct this 
-		distribution.
+		Take in the distributions and appropriate weights. If no weights
+		are provided, a uniform weight of 1/n is provided to each point.
+		Weights are scaled so that they sum to 1. 
 		"""
-		
-		# Format is name of distribution in distribution lookup table, and then
-		# all the parameters
-		stream.write("{} {} {}\n".format( self.name, 
-			"[ " + ", ".join( map( str, self.parameters[0]) ) + " ]",
-			str( list(self.parameters[1]) ) ) )
+
+		self.parameters = [ distributions ]
+		self.name = "MultivariateDistribution"
+
+	def log_probability( self, symbol ):
+		"""
+		What's the probability of a given tuple under this mixture? It's the
+		product of the probabilities of each symbol in the tuple under their
+		respective distribution, which is the sum of the log probabilities.
+		"""
+
+		return sum( d.log_probability( obs ) for d, obs in zip( 
+			self.parameters[0], symbol ) )
+
+	def sample( self ):
+		"""
+		Sample from the mixture. First, choose a distribution to sample from
+		according to the weights, then sample from that distribution. 
+		"""
+
+		return [ d.sample() for d in self.parameters[0] ]
+
+	def from_sample( self, items, weights=None ):
+		"""
+		Items are tuples, and so each distribution can be trained
+		independently of each other. 
+		"""
+
+		items = numpy.array( items )
+
+		for i, d in enumerate( self.parameters[0] ):
+			d.from_sample( items[:,i], weights=weights )
+
 
 cdef class State(object):
 	"""
@@ -2459,51 +2492,15 @@ cdef class Model(object):
 
 	def log_probability( self, sequence, path=None ):
 		'''
-		Calculate the log probability of a sequence, or alternatively a list of
-		sequences, depending on what is passed in. If sequence is a single 
-		sequence, it will return the probability of that sequence. If sequence
-		is a list of sequences, then it will return the sum of all sequences.
+		Calculate the log probability of a single sequence. If a path is
+		provided, calculate the log probability of that sequence given
+		the path.
 		'''
 
-		# Determine if the first element of sequence is an iterable. If not,
-		# then a single sequence was passed in. Return the probability of
-		# that sequence. Otherwise, a list of sequences was passed in.
-		if not hasattr( sequence[0], '__iter__' ):
-			# Calculate the log probability of the sequence. If a path is
-			# provided, use that path. Otherwise, calculate the sum-of-all-path
-			# probability.
-			if not path:
-				return self._log_probability( numpy.array( sequence ) )
-			else:
-				return self._log_probability_of_path( 
-					numpy.array( sequence ), numpy.array( path ) )
-
-		# Since a list of sequences was passed in, rename for better clarity
-		# as to what is going on.
-		sequences = sequence 
-
-		# Start off with the sum being negative infinite, and calculate the
-		# log sum exp of all the sequences.
-		log_probability_sum = NEGINF
-
-		# Go through all of the sequences, and calculate the probability of
-		# all of the sequences.
-		for i, sequence in enumerate( sequences ):
-			# Calculate the log probability of the sequence. If a path is
-			# provided, use that path. Otherwise, calculate the sum-of-all-path
-			# probability.
-			if not path:
-				log_probability = self._log_probability( 
-					numpy.array( sequence ) )
-			else:
-				log_probability = self._log_probability_of_path(
-					numpy.array( sequence ), numpy.array( path[i] ) )
-
-			# Use log sum exp to add it to the running sum.
-			log_probability_sum = pair_lse( 
-				log_probability_sum, log_probability )
-
-		return log_probability_sum
+		if path:
+			return self._log_probability_of_path( numpy.array( sequence ),
+				numpy.array( path ) )
+		return self._log_probability( numpy.array( sequence ) )
 
 	cdef double _log_probability( self, numpy.ndarray sequence ):
 		'''
@@ -2521,7 +2518,7 @@ cdef class Model(object):
 			log_probability_sum = NEGINF
 			for i in xrange( self.silent_start ):
 				log_probability_sum = pair_lse( 
-					log_probability_sum, f[ len(sequence), i] )
+					log_probability_sum, f[ len(sequence), i ] )
 
 		return log_probability_sum
 
@@ -3097,15 +3094,14 @@ cdef class Model(object):
 
 			# If calling the labelled training algorithm, then sequences is a
 			# list of tuples of sequence, path pairs, not a list of sequences.
-			# In order to get a good estimate, need to use the 
-			log_probability_sum = self.log_probability( 
-				[ seq for seq, path in sequences],
-				[ path for seq, path in sequences ] )	
-							
+			log_probability_sum = sum( self.log_probability( sequence, path ) \
+				for sequence, path in sequences )
+		
 			self._train_labelled( sequences, transition_pseudocount, 
 				use_pseudocount, edge_inertia )
 		else:
-			log_probability_sum = self.log_probability( sequences )
+			log_probability_sum = sum( self.log_probability( sequence ) \
+				for sequence in sequences )
 
 		# Cast everything as a numpy array for input into the other possible
 		# training algorithms.
@@ -3127,11 +3123,11 @@ cdef class Model(object):
 		# probability sum across the path it chose, instead of the
 		# sum-of-all-paths probability.
 		if algorithm.lower() == 'labelled' or algorithm.lower() == 'labeled':
-			trained_log_probability_sum = self.log_probability(
-				[ seq for seq, path in sequences ],
-				[ path for seq, path in sequences ] )
+			trained_log_probability_sum = sum( self.log_probability( seq, path )
+				for seq, path in sequences )
 		else:
-			trained_log_probability_sum = self.log_probability( sequences )
+			trained_log_probability_sum = sum( self.log_probability( sequence )
+				for sequence in sequences )
 
 		# Calculate the difference between the two measurements.
 		improvement = trained_log_probability_sum - log_probability_sum
@@ -3156,7 +3152,8 @@ cdef class Model(object):
 
 		# How many iterations of training have we done (counting the first)
 		iteration, improvement = 0, float("+inf")
-		last_log_probability_sum = self.log_probability ( sequences )
+		last_log_probability_sum = \
+			sum( self.log_probability( sequence ) for sequence in sequences )
 
 		while improvement > stop_threshold or iteration < min_iterations:
 			if max_iterations and iteration >= max_iterations:
@@ -3171,7 +3168,8 @@ cdef class Model(object):
 
 			# Calculate the improvement yielded by that iteration of
 			# Baum-Welch.
-			trained_log_probability_sum = self.log_probability( sequences )
+			trained_log_probability_sum = \
+				sum( self.log_probability( sequence ) for sequence in sequences )
 			improvement = trained_log_probability_sum - last_log_probability_sum
 			last_log_probability_sum = trained_log_probability_sum
 
@@ -3228,7 +3226,7 @@ cdef class Model(object):
 			for k in xrange( n ):
 				for i in xrange( self.silent_start ):
 					e[k, i] = self.states[i].distribution.log_probability( 
-						sequence[k] ) * self.state_weights[i]
+						sequence[k] ) + self.state_weights[i]
 
 			# Get the overall log probability of the sequence, and fill in the
 			# the forward DP matrix.
