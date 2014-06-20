@@ -2361,7 +2361,7 @@ cdef class Model(object):
 			log_sequence_probability = NEGINF
 			for i in xrange( self.silent_start ):
 				log_sequence_probability = pair_lse( 
-					log_sequence_probability, f[ i, self.end_index ] )
+					log_sequence_probability, f[ n, i ] )
 		
 		# Is the sequence impossible? If so, don't bother calculating any more.
 		if log_sequence_probability == NEGINF:
@@ -2819,7 +2819,7 @@ cdef class Model(object):
 			log_sequence_probability = NEGINF
 			for i in xrange( self.silent_start ):
 				log_sequence_probability = pair_lse( 
-					log_sequence_probability, f[ i, self.end_index ] )
+					log_sequence_probability, f[ n, i ] )
 		
 		# Is the sequence impossible? If so, don't bother calculating any more.
 		if log_sequence_probability == NEGINF:
