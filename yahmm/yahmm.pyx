@@ -3094,14 +3094,21 @@ cdef class Model(object):
 
 			# If calling the labelled training algorithm, then sequences is a
 			# list of tuples of sequence, path pairs, not a list of sequences.
-			log_probability_sum = sum( self.log_probability( sequence, path ) \
-				for sequence, path in sequences )
+			# The log probability sum is the log-sum-exp of the log
+			# probabilities of all members of the sequence. In this case,
+			# sequences is made up of ( sequence, path ) tuples, instead of
+			# just sequences.
+			log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
+				[self.log_probability( seq, path ) for seq, path in sequences])
 		
 			self._train_labelled( sequences, transition_pseudocount, 
 				use_pseudocount, edge_inertia )
 		else:
-			log_probability_sum = sum( self.log_probability( sequence ) \
-				for sequence in sequences )
+			# Take the logsumexp of the log probabilities of the sequences.
+			# Since sequences is just a list of sequences now, we can map
+			# the log probability function directly onto it.
+			log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
+				map( self.log_probability, sequences ) )
 
 		# Cast everything as a numpy array for input into the other possible
 		# training algorithms.
@@ -3123,11 +3130,15 @@ cdef class Model(object):
 		# probability sum across the path it chose, instead of the
 		# sum-of-all-paths probability.
 		if algorithm.lower() == 'labelled' or algorithm.lower() == 'labeled':
-			trained_log_probability_sum = sum( self.log_probability( seq, path )
-				for seq, path in sequences )
+			# Since there are labels for this training, make sure to calculate
+			# the log probability given the path. 
+			trained_log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
+				[self.log_probability( seq, path ) for seq, path in sequences])
 		else:
-			trained_log_probability_sum = sum( self.log_probability( sequence )
-				for sequence in sequences )
+			# Given that there are no labels, calculate the logsumexp by
+			# mapping the log probability function directly onto the sequences.
+			trained_log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
+				map( self.log_probability, sequences ) )
 
 		# Calculate the difference between the two measurements.
 		improvement = trained_log_probability_sum - log_probability_sum
@@ -3152,8 +3163,8 @@ cdef class Model(object):
 
 		# How many iterations of training have we done (counting the first)
 		iteration, improvement = 0, float("+inf")
-		last_log_probability_sum = \
-			sum( self.log_probability( sequence ) for sequence in sequences )
+		last_log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
+			map( self.log_probability, sequences ) )
 
 		while improvement > stop_threshold or iteration < min_iterations:
 			if max_iterations and iteration >= max_iterations:
@@ -3167,9 +3178,15 @@ cdef class Model(object):
 			iteration += 1
 
 			# Calculate the improvement yielded by that iteration of
-			# Baum-Welch.
-			trained_log_probability_sum = \
-				sum( self.log_probability( sequence ) for sequence in sequences )
+			# Baum-Welch. First, we must calculate probability of sequences
+			# after training, which is just the logsumexp of the log
+			# probabilities of the sequence.
+			trained_log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
+				map( self.log_probability, sequences ) )
+
+			# The improvement is the difference between the log probability of
+			# all the sequences after training, and the log probability before
+			# training.
 			improvement = trained_log_probability_sum - last_log_probability_sum
 			last_log_probability_sum = trained_log_probability_sum
 
