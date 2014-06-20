@@ -2760,7 +2760,7 @@ cdef class Model(object):
 			# Until we've traced back to the start...
 			# Put the position in the path, making sure to look up the state
 			# object to use instead of the state index.
-			path.append( ( px, self.states[py] ) )
+			path.append( ( py, self.states[py] ) )
 
 			# Go backwards
 			npx = tracebackx[px, py]
@@ -2770,7 +2770,7 @@ cdef class Model(object):
 		# We've now reached the start (if we didn't raise an exception because
 		# we messed up the traceback)
 		# Record that we start at the start
-		path.append( (px, self.states[py] ) )
+		path.append( (py, self.states[py] ) )
 
 		# Flip the path the right way around
 		path.reverse()
