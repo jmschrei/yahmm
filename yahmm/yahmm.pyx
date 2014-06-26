@@ -154,8 +154,9 @@ cdef class Distribution(object):
 		"""
 		Represent this distribution in a human-readable form.
 		"""
-		
-		return "{}({})".format(self.name, ", ".join(map(str, self.parameters)))
+		parameters = [ list(p) if isinstance(p, numpy.ndarray) else p
+			for p in self.parameters ]
+		return "{}({})".format(self.name, ", ".join(map(str, parameters)))
 
 cdef class UniformDistribution(Distribution):
 	"""
@@ -947,6 +948,16 @@ cdef class MixtureDistribution( Distribution ):
 		self.parameters = [ distributions, self.weights ]
 		self.name = "MixtureDistribution"
 
+	def __str__( self ):
+		"""
+		Return a string representation of this mixture.
+		"""
+
+		distributions, weights = self.parameters
+		distributions = map( str, distributions )
+		return "MixtureDistribution( {}, {} )".format(
+			distributions, list(weights) ).replace( "'", "" )
+
 	def log_probability( self, symbol ):
 		"""
 		What's the probability of a given float under this mixture? It's
@@ -966,7 +977,7 @@ cdef class MixtureDistribution( Distribution ):
 		"""
 
 		i = random.random()
-		for d, w in zip( self.parameters ):
+		for d, w in zip( *self.parameters ):
 			if w > i:
 				return d.sample()
 			i -= w 
@@ -1003,6 +1014,15 @@ cdef class MultivariateDistribution( Distribution ):
 
 		self.parameters = [ distributions ]
 		self.name = "MultivariateDistribution"
+
+	def __str__( self ):
+		"""
+		Return a string representation of the MultivariateDistribution.
+		"""
+
+		distributions = map( str, self.parameters[0] )
+		return "MultivariateDistribution({})".format(
+			distributions ).replace( "'", "" )
 
 	def log_probability( self, symbol ):
 		"""
