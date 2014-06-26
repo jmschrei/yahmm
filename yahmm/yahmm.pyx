@@ -25,12 +25,31 @@ DEF SQRT_2_PI = 2.50662827463
 
 # Useful speed optimized functions
 cdef inline double _log ( double x ):
+	'''
+	A wrapper for the c log function, by returning negative input if the
+	input is 0.
+	'''
+
 	return clog( x ) if x > 0 else NEGINF
 
 cdef inline int pair_int_max( int x, int y ):
+	'''
+	Calculate the maximum of a pair of two integers. This is
+	significantly faster than the Python function max().
+	'''
+
 	return x if x > y else y
 
 cdef inline double pair_lse( double x, double y ):
+	'''
+	Perform log-sum-exp on a pair of numbers in log space..  This is calculated
+	as z = log( e**x + e**y ). However, this causes underflow sometimes
+	when x or y are too negative. A simplification of this is thus
+	z = x + log( e**(y-x) + 1 ), where x is the greater number. If either of
+	the inputs are infinity, return infinity, and if either of the inputs
+	are negative infinity, then simply return the other input.
+	'''
+
 	if x == INF or y == INF:
 		return INF
 	if x == NEGINF:
@@ -1050,6 +1069,14 @@ cdef class State(object):
 
 		self.weight = weight or 1.
 
+	def __str__(self):
+		"""
+		Represent this state with it's name, weight, and identity.
+		"""
+		
+		return "State( {}, name={}, weight={}, identity={} )".format(
+			str(self.distribution), self.name, self.weight, self.identity )
+
 	def is_silent(self):
 		"""
 		Return True if this state is silent (distribution is None) and False 
@@ -1072,24 +1099,6 @@ cdef class State(object):
 		"""
 
 		return State( **self.__dict__ )
-			
-	def __str__(self):
-		"""
-		Represent this state with it's name.
-		"""
-		
-		if self.is_silent():
-			return "{} (silent)".format(self.name)
-		else:
-			return "{}: {}".format(self.name, str(self.distribution))
-		
-	def __repr__(self):
-		"""
-		Represent this state uniquely.
-		"""
-		
-		return "State({}, {}, {})".format(
-			self.name, str(self.distribution), self.identity)
 		
 	def write(self, stream):
 		"""
@@ -1101,9 +1110,9 @@ cdef class State(object):
 		"""
 		
 		name = self.name.replace( " ", "_" ) 
-		stream.write( "{} {} {}\n".format( 
-			self.identity, name, str( self.distribution ) ) )
-			
+		stream.write( "{} {} {} {}\n".format( 
+			self.identity, name, self.weight, str( self.distribution ) ) )
+		
 	@classmethod
 	def read(cls, stream):
 		"""
@@ -1121,9 +1130,10 @@ cdef class State(object):
 		
 		# parts[0] holds the state's name, and parts[1] holds the rest of the
 		# state information, so we can just evaluate it.
-		identity, name, state_info = parts[0], parts[1], ' '.join( parts[2:] )
-		return eval( "State( {}, name='{}', identity='{}' )".format( 
-			state_info, name, identity ) )
+		identity, name, weight, distribution = \
+			parts[0], parts[1], parts[2], ' '.join( parts[3:] )
+		return eval( "State( {}, name='{}', weight={}, identity='{}' )".format( 
+			distribution, name, weight, identity ) )
 
 cdef class Model(object):
 	"""
@@ -1344,9 +1354,25 @@ cdef class Model(object):
 		
 		return "{}:\n\t{}".format(self.name, "\n\t".join(map(str, self.states)))
 
+	def state_count( self ):
+		"""
+		Returns the number of states present in the model.
+		"""
+
+		return len( self.states )
+
+	def edge_count( self ):
+		"""
+		Returns the number of edges present in the model.
+		"""
+
+		return len( self.out_transition_log_probabilities )
+
 	def is_infinite( self ):
 		"""
-		Returns whether or not the HMM is infinite, or finite. This is
+		Returns whether or not the HMM is infinite, or finite. An infinite HMM
+		is a HMM which does not have explicit transitions to an end state,
+		meaning that it can end in any symbol emitting state. This is
 		determined in the bake method, based on if there are any edges to the
 		end state or not. Can only be used after a model is baked.
 		"""
@@ -1362,8 +1388,17 @@ cdef class Model(object):
 		
 		# Put it in the graph
 		self.graph.add_node(state)
+
+	def add_states( self, states ):
+		"""
+		Adds multiple states to the model at the same time. Basically just a
+		helper function for the add_state method.
+		"""
+
+		for state in states:
+			self.add_state( state )
 		
-	def add_transition(self, a, b, probability, pseudocount=None):
+	def add_transition( self, a, b, probability, pseudocount=None ):
 		"""
 		Add a transition from state a to state b with the given (non-log)
 		probability. Both states must be in the HMM already. self.start and
@@ -1399,8 +1434,7 @@ cdef class Model(object):
 		"""
 		Given another model, concatenate it in such a manner that you simply
 		add a transition of probability 1 from self.end to other.start, and
-		end at other.end. One of these silent states will be removed when
-		the model is baked, due to the graph simplification routine.
+		set the end of this model to other.end.
 		"""
 
 		# Unify the graphs (requiring disjoint states)
@@ -1438,14 +1472,27 @@ cdef class Model(object):
 		(the index of the first silent state).
 
 		The option verbose will return a log of the changes made to the model
-		due to normalization or merging. Merging has three options, "all",
-		"partial", and None. None will keep the underlying graph structure
-		completely in tact. "Partial" will merge silent states where one
-		has a probability 1.0 transition to the other, to simplify the model
-		without changing the underlying meaning. "All" will merge any silent
-		state which has a probability 1.0 transition to any other state,
-		silent or character-generating either. This may not be desirable as
-		some silent states are useful for bookkeeping purposes.
+		due to normalization or merging. 
+
+		Merging has three options:
+			"None": No modifications will be made to the model.
+			"Partial": A silent state which only has a probability 1 transition
+				to another silent state will be merged with that silent state.
+				This means that if silent state "S1" has a single transition
+				to silent state "S2", that all transitions to S1 will now go
+				to S2, with the same probability as before, and S1 will be
+				removed from the model.
+			"All": A silent state with a probability 1 transition to any other
+				state, silent or symbol emitting, will be merged in the manner
+				described above. In addition, any orphan states will be removed
+				from the model. An orphan state is a state which does not have
+				any transitions to it OR does not have any transitions from it,
+				except for the start and end of the model. This will iteratively
+				remove orphan chains from the model. This is sometimes desirable,
+				as all states should have both a transition in to get to that
+				state, and a transition out, even if it is only to itself. If
+				the state does not have either, the HMM will likely not work as
+				intended.
 		"""
 
 		# Go through the model and delete any nodes which have no edges leading
@@ -2017,23 +2064,6 @@ cdef class Model(object):
 				# Add the previous partial result and update the table entry
 				f[i+1, l] = pair_lse( f[i+1, l], log_probability )
 
-			# Now calculate the normalizing weight for this row, as described
-			# here: http://www.cs.sjsu.edu/~stamp/RUA/HMM.pdf
-			for l in xrange( m ):
-				c[i+1] += cexp( f[i+1, l] )
-
-			# Convert to log space, and subtract, instead of invert and multiply
-			c[i+1] = clog( c[i+1] )
-			for l in xrange( m ):
-				f[i+1, l] -= c[i+1]
-
-		# Go through and recalculate every observation based on the sum of the
-		# normalizing weights.
-		for i in xrange( n+1 ):
-			for l in xrange( m ):
-				for k in xrange( i+1 ):
-					f[i, l] += c[k]
-
 		# Now the DP table is filled in
 		# Return the entire table
 		return f
@@ -2259,24 +2289,6 @@ cdef class Model(object):
 				# Now we have summed the probabilities of all the ways we can
 				# get from here to the end, so we can fill in the table entry.
 				b[i, k] = log_probability
-
-			# Now calculate the normalizing weight for this row, as described
-			# here: http://www.cs.sjsu.edu/~stamp/RUA/HMM.pdf
-			for l in xrange( m ):
-				c[i] += cexp( b[i, l] )
-
-			# Convert to log space, and subtract, instead of invert and multiply
-			c[i] = clog( c[i] )
-			for l in xrange( m ):
-				b[i, l] -= c[i]
-
-		# Go through and recalculate every observation based on the sum of the
-		# normalizing weights.
-		for ir in xrange( n+1 ):
-			i = n - ir
-			for l in xrange( m ):
-				for k in xrange( i, n+1 ):
-					b[i, l] += c[k]
 
 		# Now the DP table is filled in. 
 		# Return the entire table.
@@ -2874,9 +2886,9 @@ cdef class Model(object):
 		
 		HMM must have been baked.
 		
-		HMM is written as a series of "<name> <Distribution>" pairs, which can
-		be directly evaluated by the eval method. This makes them both human
-		readable, and keeps the code for it super simple.
+		HMM is written as  "<identity> <name> <weight> <Distribution>" tuples 
+		which can be directly evaluated by the eval method. This makes them 
+		both human readable, and keeps the code for it super simple.
 		
 		The start state is the one named "<hmm name>-start" and the end state is
 		the one named "<hmm name>-end". Start and end states are always silent.
@@ -2898,17 +2910,18 @@ cdef class Model(object):
 			state.write(stream)
 			
 		# Get transitions.
-		# Each is a tuple (from index, to index, log probability)
+		# Each is a tuple (from index, to index, log probability, pseudocount)
 		transitions = []
 		
 		for k in xrange( len(self.states) ):
 			for l in xrange( self.out_edge_count[k], self.out_edge_count[k+1] ):
 				li = self.out_transitions[l]
-				log_probability = self.out_transition_log_probabilities[l] 
+				log_probability = self.out_transition_log_probabilities[l]
+				pseudocount = self.out_transition_pseudocounts[l]
 
-				transitions.append( (k, li, log_probability) )
+				transitions.append( (k, li, log_probability, pseudocount) )
 			
-		for (from_index, to_index, log_probability) in transitions:
+		for (from_index, to_index, log_probability, pseudocount) in transitions:
 			
 			# Write each transition, using state names instead of indices.
 			# This requires lookups and makes state names need to be unique, but
@@ -2926,8 +2939,8 @@ cdef class Model(object):
 			probability = exp(log_probability)
 			
 			# Write it out
-			stream.write("{} {} {} {} {}\n".format(
-				from_name, to_name, probability, from_id, to_id ) )
+			stream.write("{} {} {} {} {} {}\n".format(
+				from_name, to_name, probability, pseudocount, from_id, to_id))
 			
 	@classmethod
 	def read(cls, stream, verbose=False):
@@ -2981,14 +2994,18 @@ cdef class Model(object):
 		for line in stream:
 			# Pull out the from state name, to state name, and probability 
 			# string
-			(from_name, to_name, probability_string, from_id, to_id) = \
-				line.strip().split()
+			( from_name, to_name, probability_string, pseudocount_string,
+				from_id, to_id ) = line.strip().split()
 			
 			# Make the probability as a float
 			probability = float(probability_string)
 			
+			# Make the pseudocount a float too
+			pseudocount = float(pseudocount_string)
+
 			# Look up the states and add the transition
-			hmm.add_transition(states[from_id], states[to_id], probability)
+			hmm.add_transition(
+				states[from_id], states[to_id], probability, pseudocount )
 
 		# Now our HMM is done.
 		# Bake and return it.

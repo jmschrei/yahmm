@@ -24,3 +24,21 @@ v0.1.5 5/18/2014 -- Fixed a bug with training that was introduced in v0.1.4. Bec
 Fixed writing and reading. Previously, reading and writing only worked on Normal, Exponential, Gamma, InverseGamma distributions. Now works on all distributions, including mixtures of arbitrary distributions.
 
 Sped up exponential and gamma distributions a tiny bit by changing the log function to the C log function.
+
+v1.0.0 6/26/2014 -- Significant changes have been made, which make some functions no longer back compatible. 
+
+(1) Read and write are no longer back compatible in order to have a more fully featured method pair. THESE FUNCTIONS DO NOT HANDLE TIED STATES YET. IF YOU WRITE A MODEL AND READ IT BACK IN, YOU WILL LOSE TIED STATE INFORMATION. This will be fixed shortly, but is currently not possible.
+
+(2) Model.train now takes "labelled" as an algorithm type, and lets you pass in ( sequence, label ) tuples, where the label is state object that should have represented this. This is useful for hand notated data. Model._train_viterbi has been updated to simply be a wrapper for this function, where it calculates the viterbi path of an unlabelled sequence before passing it into Model._train_labelled.
+
+(3) Edge intertia now added, meaning that in the training algorithms, the new training edge will be x*(1-p) + y*(p) where p is the edge inertia, x is the new value estimated, and y was the previous value. Each iteration of Baum-Welch will use y as the value calculated in the previous iteration, meaning it can change more than the amount specified over the total number of iterations.
+
+(4) Transition pseudocounts are now added for training in two manners. The first is that in Model.train, you can pass in transition_pseudocount=x, where x is some float. The pseudocount is just a count applied to each edge which already exists when summing the number of times an edge is crossed. The second is to specify a pseudocount for a specific edge, using Model.add_transition( x, y, probability=z, pseudocount=p ). When training, you must toggle use_pseudocount=True in order to use. An example would be model.train( [sequences], algorithm='baum-welch', use_pseudocount=True ), or model.train( [sequences], algorithm='baum-welch', transition_pseudocount=1.5 ), or even model.train( [sequences], algorithm='baum_welch', use_pseudocount=True, transition_pseudocount=1.3 ). Pseudocounts apply to all training algorithms, not just Baum-Welch.
+
+(5) Model.log_probability( sequence ) has been added as a method to calculate the log probability score of a sequence. On finite models, this is just a wrapper for model.forward( sequence )[ len(sequence), model.end_index ]. On infinite models, it will sum the last row of the forward matrix for symbol-emitting states, as there is no specific end state.
+
+(6) State Weights have been added, and can be specified by indicating State( distribution, name, weight=x ), where X is the weight. By default this is 1. This is a bonus (or penalty) to add to the aligning of any sequence item to this state, and effects all algorithms allowing for weighted algorithms.
+
+(7) MultivariateDistribution is a new distribution type which allows you to specify distributions over an arbitrary number of independent distributions of any type. You specify it by passing in a list of distributions like the following: MultivariateDistribution( [ NormalDistribution( 5, 2 ), ExponentialDistribution( 10 ) ] ). All current methods work with it, but now all sequence items must be tuples of length equal to the number of distributions.
+
+(8) Previously, rows were normalized during the forward and backward algorithm. This caused huge slow downs for no gain, as the logsumexp function handled underflow. These have been removed. 
