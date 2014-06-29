@@ -299,19 +299,21 @@ Model.write(), to be read back in later with Model.read().
 ```
 >>> model.write(sys.stdout)
 ExampleModel 4
-ExampleModel-end *
-ExampleModel-start *
-NormalDistribution( 0.28111473818594523 0.02219798789298242 )
-uniform
-UniformDistribution 0.25891675029296335 0.7579544029403025
-ExampleModel-start uniform 1.0
-normal ExampleModel-end 7.89027215036e-248
-normal normal 6.77605125026e-76
-normal uniform 1.0
-uniform ExampleModel-end 0.333333333333
-uniform normal 0.666666666667
-uniform uniform 1.33322614629e-49
+302687936 ExampleModel-end 1.0 None
+302688008 ExampleModel-start 1.0 None
+302688080 normal 1.0 NormalDistribution(0.281114738186, 0.022197987893)
+302688152 uniform 1.0 UniformDistribution(0.258916750293, 0.75795440294)
+uniform uniform 6.02182522366e-25 0.4 302688152 302688152
+uniform ExampleModel-end 0.333333333333 0.2 302688152 302687936
+uniform normal 0.666666666667 0.4 302688152 302688080
+normal uniform 1.0 0.4 302688080 302688152
+normal ExampleModel-end 9.71474187173e-184 0.2 302688080 302687936
+normal normal 2.59561866186e-45 0.4 302688080 302688080
+ExampleModel-start uniform 1.0 0.5 302688008 302688152
+ExampleModel-start normal 0.0 0.5 302688008 302688080
 ```
+
+This file contains states, and then transitions. The first line is the name of the model and the number of states present. Then, each line contains a single state containing a unique ID, the name, the state weight, and the distribution that the state contains. For the start and end state, this value is None, as they are silent states. Then, the remaining lines contain transitions in the model, formatted by from\_state\_name, to\_state\_name, probability, pseudocount, from\_state\_id, and to\_state\_id. The IDs are unique tags generated from the memory address of the state, and are needed in case the user names two states with the same name. As an example, the first transition is from the state named uniform to the state named uniform with a very low probability, and the IDs are the same meaning that it is a self loop. 
 
 Lets explore the bake method a little more. In addition to finalizing the
 internal structure of the model, it will normalize out-edge weights, and also
