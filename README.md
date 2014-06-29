@@ -459,15 +459,13 @@ have:
 	* A sample method, which returns a randomly sampled value from the 
 	  distribution.
 
-Additionally, after creating the class, you must add the distribution to the
-REGISTRY variable in order to allow deserialization of HMMs using that 
-distribution. Once you do this, your distribution can be serialized to a stream 
-with Distribution.write(), and read back in with Distribution.read(). 
-Distribution.read() will automatically determine the type of the distribution 
-(which is why distributions need to register).
 
 The easiest way to define a new distribution is to just copy-paste the 
 UniformDistribution from the module and replace all its method bodies.
+Any distribution you define can be easily plugged in with other
+distributions, assuming that it has the correct methods. However, if
+you write the model and give it to someone else, they might not have
+the custom distribution.
 
 Here is an example discrete distribution over {True, False}:
 ```
@@ -486,7 +484,6 @@ Here is an example discrete distribution over {True, False}:
 ...         self.parameters = [float(numpy.dot(items, weights)) / len(items)]
 ...     def sample(self):
 ...         return random.random() < self.parameters[0]
->>> REGISTRY['BernoulliDistribution'] = BernoulliDistribution
 >>> bernoulli = BernoulliDistribution(0.5)
 >>> exp(bernoulli.log_probability(True))
 0.5
@@ -495,7 +492,7 @@ Here is an example discrete distribution over {True, False}:
 [False, True, False, True, False, False, True, False, True, False]
 >>> bernoulli.from_sample(sample)
 >>> bernoulli.write(sys.stdout)
-BernoulliDistribution 0.4
+BernoulliDistribution(0.4)
 ```
 ```
 	# Test HMMS
