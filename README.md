@@ -163,6 +163,13 @@ you can write the following:
 -5.0835566645
 ```
 
+Or, use a wrapper to get that value by default:
+
+```
+>>> model.log_probability(sequence)
+-5.0835566645
+```
+
 The same paradigm is used for the backward algorithm. Indices i, j represent
 the probability of having aligned observation i to state j and continued
 aligning the remainder of the sequence till the end.
@@ -225,7 +232,7 @@ iteration, and stops if the improvement gets too small or actually goes
 negative. 
 ```
 >>> sequences = [sequence]
->>> model.forward(sequence)[ len(sequence), model.end_index ]
+>>> model.log_probability(sequence)
 -5.0835566644993735
 
 >>> log_score = model.train(sequences)
@@ -244,7 +251,7 @@ Training improvement: 0.0067603436265
 Training improvement: 5.5971526649e-06
 Training improvement: 3.75166564481e-12
 
->>> model.forward(sequence)[ len(sequence), model.end_index ]
+>>> model.log_probability(sequence)
 -4.9533088776424528
 ```
 
@@ -280,6 +287,7 @@ multiple states. See the following example.
 
 # A AND C TIED STATES
 >>> d = NormalDistribution( 5, 2 )
+>>>
 >>> a = State( d, name="A" )
 >>> b = State( UniformDistribution( 2, 7 ), name="B" )
 >>> c = State( d, name="C" )
@@ -293,8 +301,7 @@ Model.write(), to be read back in later with Model.read().
 ExampleModel 4
 ExampleModel-end *
 ExampleModel-start *
-normal
-NormalDistribution 0.28111473818594523 0.02219798789298242
+NormalDistribution( 0.28111473818594523 0.02219798789298242 )
 uniform
 UniformDistribution 0.25891675029296335 0.7579544029403025
 ExampleModel-start uniform 1.0
@@ -342,12 +349,9 @@ If at this point we baked model_a and ran it, we'd get the following:
 ```
 >>> sequence = [ 24.57, 23.10, 11.56, 14.3, 36.4, 33.2, 44.2, 46.7 ]
 >>> model_a.bake( verbose=True )
->>> print
->>> print model_a.forward( sequence )
->>> print
->>> print model_a.forward( sequence )[ len(sequence), model_a.end_index ]
 model_a : model_a-start summed to 0.95, normalized to 1.0
-
+>>>
+>>> print model_a.forward( sequence )
 [[         -inf          -inf          -inf    0.        ]
  [         -inf   -1.01138853   -3.31397363          -inf]
  [ -53.62847425   -4.6516178    -6.95420289          -inf]
@@ -357,7 +361,8 @@ model_a : model_a-start summed to 0.95, normalized to 1.0
  [-282.2049042  -112.02804776 -114.33063285          -inf]
  [-600.36013347 -298.18327702 -300.48586211          -inf]
  [-867.64036273 -535.46350629 -537.76609138          -inf]]
-
+>>> 
+>>> print model_a.log_probability( sequence )
 -537.766091379
 ```
 By setting verbose=True, we get a log that the out-edges from model.start have
@@ -370,14 +375,11 @@ get the following:
 >>> sequence = [ 24.57, 23.10, 11.56, 14.3, 36.4, 33.2, 44.2, 46.7 ]
 >>> model_a.concatenate_model( model_b )
 >>> model_a.bake( verbose=True )
->>> print
->>> print model_a.forward( sequence )
->>> print
->>> print model_a.forward( sequence )[ len(sequence), model_a.end_index ]
 model_a : model_a-end (silent) - model_b-start (silent) merged
 model_a : model_a-start summed to 0.95, normalized to 1.0
 model_a : S3 summed to 0.8, normalized to 1.0
-
+>>> 
+>>> print model_a.forward( sequence )
 [[         -inf          -inf          -inf          -inf          -inf		
  -inf            0.]
  [         -inf   -1.01138853          -inf          -inf   -3.31397363	
@@ -397,6 +399,8 @@ model_a : S3 summed to 0.8, normalized to 1.0
  [-102.77887769 -535.46350629  -23.9843428  -867.64036273 -537.76609138 
    -23.9843428          -inf]]
 
+>>>
+>>> print model_a.log_probability( sequence )
 -23.9843427976
 ```
 We see both bake processing operations in effect. Both model_a.start and S3 did
