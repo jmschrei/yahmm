@@ -1,6 +1,8 @@
 yahmm
 =====
 
+[![Build Status](https://travis-ci.org/tlnagy/yahmm.svg?branch=travis)](https://travis-ci.org/tlnagy/yahmm)
+
 Yet Another Hidden Markov Model library
 
 This module implements Hidden Markov Models (HMMs) with a compositional, graph-
