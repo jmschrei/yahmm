@@ -1388,6 +1388,22 @@ cdef class Model(object):
 
 		return len( self.out_transition_log_probabilities )
 
+	def dense_transition_matrix( self ):
+		"""
+		Returns the dense transition matrix. Useful if the transitions of
+		somewhat small models need to be analyzed.
+		"""
+
+		m = len(self.states)
+		transition_log_probabilities = numpy.zeros( (m, m) ) + NEGINF
+
+		for i in xrange(m):
+			for n in xrange( self.out_edge_count[i], self.out_edge_count[i+1] ):
+				transition_log_probabilities[i, self.out_transitions[n]] = \
+					self.out_transition_log_probabilities[n]
+
+		return transition_log_probabilities 
+
 	def is_infinite( self ):
 		"""
 		Returns whether or not the HMM is infinite, or finite. An infinite HMM
@@ -2314,7 +2330,7 @@ cdef class Model(object):
 		# Return the entire table.
 		return b
 
-	def forward_backward( self, sequence, tie=True ):
+	def forward_backward( self, sequence, tie=False ):
 		"""
 		Implements the forward-backward algorithm. This is the sum-of-all-paths
 		log probability that you start at the beginning of the sequence, align
