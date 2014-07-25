@@ -319,6 +319,137 @@ cdef class NormalDistribution(Distribution):
 		# Set the parameters
 		self.parameters = [mean, std]
 
+cdef class LogNormalDistribution(Distribution):
+	"""
+	Represents a lognormal distribution over non-negative floats.
+	"""
+
+	def __init__( self, mu, sigma ):
+		"""
+		Make a new lognormal distribution. The parameters are the mu and sigma
+		of the normal distribution, which is the the exponential of the log
+		normal distribution.
+		"""
+		self.parameters = [ mu, sigma ]
+		self.name = "LogNormalDistribution"
+
+	def log_probability( self, symbol ):
+		"""
+		What's the probability of the given float under this distribution?
+		"""
+
+		return self._log_probability( symbol )
+
+	cdef double _log_probability( self, symbol ):
+		"""
+		Actually perform the calculations here, in the Cython-optimized
+		function.
+		"""
+
+		mu, sigma = self.parameters
+		return -clog( symbol * sigma * SQRT_2_PI ) \
+			- 0.5 * ( ( clog( symbol ) - mu ) / sigma ) ** 2
+
+	def sample( self ):
+		"""
+		Return a sample from this distribution.
+		"""
+
+		return numpy.random.lognormal( *self.parameters )
+
+	def from_sample( self, items, weights=None, min_std=0.01 ):
+		"""
+		Set the parameters of this distribution to maximize the likelihood of
+		the given samples. Items hold some sort of sequence over floats. If
+		weights is specified, hold a sequence of values to weight each item by.
+		"""
+
+		if len(items) == 0:
+			# No sample, so just ignore it and keep our old parameters.
+			return
+
+		# Make it be a numpy array
+		items = numpy.asarray(items)
+		
+		if weights is None:
+			# Weight everything 1 if no weights specified
+			weights = numpy.ones_like(items)
+		else:
+			# Force whatever we have to be a Numpy array
+			weights = numpy.asarray(weights)
+		
+		if weights.sum() == 0:
+			# Since negative weights are banned, we must have no data.
+			# Don't change the parameters at all.
+			return
+
+		# The ML uniform distribution is just the mean of the log of the samples
+		# and sample std the variance of the log of the samples.
+		# But we have to weight them. average does weighted mean for us, but 
+		# weighted std requires a trick from Stack Overflow.
+		# http://stackoverflow.com/a/2415343/402891
+		# Take the mean
+		mean = numpy.average( numpy.log(items), weights=weights)
+
+		if len(weights[weights != 0]) > 1:
+			# We want to do the std too, but only if more than one thing has a 
+			# nonzero weight
+			# First find the variance
+			variance = ( numpy.dot( numpy.log(items) ** 2 - mean ** 2, weights) / 
+				weights.sum() )
+				
+			if variance >= 0:
+				std = csqrt(variance)
+			else:
+				# May have a small negative variance on accident. Ignore and set
+				# to 0.
+				std = 0
+		else:
+			# Only one data point, can't update std
+			std = self.parameters[1]    
+		
+		# Enforce min std
+		std = max( numpy.array([std, min_std]) )
+		# Set the parameters
+		self.parameters = [mean, std]
+
+cdef class ExtremeValueDistribution( Distribution ):
+	"""
+	Represent a generalized extreme value distribution over floats.
+	"""
+
+	def __init__( self, mu, sigma, epsilon ):
+		"""
+		Make a new extreme value distribution, where mu is the location
+		parameter, sigma is the scale parameter, and epsilon is the shape
+		parameter. 
+		"""
+
+		self.parameters = [ float(mu), float(sigma), float(epsilon) ]
+		self.name = "ExtremeValueDistribution"
+
+	def log_probability( self, symbol ):
+		"""
+		What's the probability of the given float under this distribution?
+		"""
+
+		return self._log_probability( symbol )
+
+	cdef double _log_probability( self, symbol ):
+		"""
+		Actually perform the calculations here, in the Cython-optimized
+		function.
+		"""
+
+		mu, sigma, epsilon = self.parameters
+		t = ( symbol - mu ) / sigma
+		if epsilon == 0:
+			return -clog( sigma ) - t - cexp( -t )
+		return -clog( sigma ) + clog( 1 + epsilon * t ) * (-1. / epsilon - 1) \
+			- ( 1 + epsilon * t ) ** ( -1. / epsilon )
+
+
+
 cdef class ExponentialDistribution(Distribution):
 	"""
 	Represents an exponential distribution on non-negative floats.
@@ -1005,14 +1136,19 @@ cdef class MultivariateDistribution( Distribution ):
 	s1.log_probability( (5, 2 ) )
 	"""
 
-	def __init__( self, distributions ):
+	def __init__( self, distributions, weights=None ):
 		"""
 		Take in the distributions and appropriate weights. If no weights
 		are provided, a uniform weight of 1/n is provided to each point.
 		Weights are scaled so that they sum to 1. 
 		"""
+		n = len(distributions)
+		if weights:
+			weights = numpy.array( weights )
+		else:
+			weights = numpy.ones(n)
 
-		self.parameters = [ distributions ]
+		self.parameters = [ distributions, weights ]
 		self.name = "MultivariateDistribution"
 
 	def __str__( self ):
@@ -1031,8 +1167,8 @@ cdef class MultivariateDistribution( Distribution ):
 		respective distribution, which is the sum of the log probabilities.
 		"""
 
-		return sum( d.log_probability( obs ) for d, obs in zip( 
-			self.parameters[0], symbol ) )
+		return sum( d.log_probability( obs )*w for d, obs, w in zip( 
+			self.parameters[0], symbol, self.parameters[1] ) )
 
 	def sample( self ):
 		"""
