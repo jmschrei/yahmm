@@ -1,6 +1,8 @@
 yahmm
 =====
 
+[![Build Status](https://travis-ci.org/jmschrei/yahmm.svg?branch=master)](https://travis-ci.org/jmschrei/yahmm)
+
 Yet Another Hidden Markov Model library
 
 This module implements Hidden Markov Models (HMMs) with a compositional, graph-
@@ -14,6 +16,28 @@ and training by both Baum-Welch and Viterbi algorithms.
 Silent states are accounted for, but loops containing all silent states are
 prohibited. Tied states are also implemented, and handled appropriately in
 the training of models.
+
+## Installation
+
+Since yahmm is on PyPi, installation is as easy as running
+
+```
+pip install yahmm
+```
+
+## Contributing
+
+If you would like to contribute a feature then fork the master branch (fork the release if you are fixing a bug). Be sure to run the tests before changing any code. You'll need to have [nosetests](https://github.com/nose-devs/nose) installed. The following command will run all the tests:
+```
+nosetests -w tests/
+```
+Let us know what you want to do just in case we're already working on an implementation of something similar. This way we can avoid any needless duplication of effort. Also, please don't forget to add tests for any new functions. 
+
+## Documentation
+
+See the [wiki](https://github.com/jmschrei/yahmm/wiki) for documentation of yahmm's functions and design. For real-world usage check out the [examples](http://nbviewer.ipython.org/github/jmschrei/yahmm/tree/master/examples/). 
+
+### Tutorial
 
 For our examples here we're going to make the random number generator 
 deterministic:
