@@ -448,8 +448,6 @@ cdef class ExtremeValueDistribution( Distribution ):
 		return -clog( sigma ) + clog( 1 + epsilon * t ) * (-1. / epsilon - 1) \
 			- ( 1 + epsilon * t ) ** ( -1. / epsilon )
 
-
-
 cdef class ExponentialDistribution(Distribution):
 	"""
 	Represents an exponential distribution on non-negative floats.
@@ -893,6 +891,8 @@ cdef class GaussianKernelDensity( Distribution ):
 		else:
 			self.weights = numpy.ones( n ) / n 
 
+		self.parameters = [ self.points, self.parameters[1], self.weights ]
+
 cdef class UniformKernelDensity( Distribution ):
 	"""
 	A quick way of storing points to represent an Exponential kernel density in
@@ -944,6 +944,8 @@ cdef class UniformKernelDensity( Distribution ):
 			# a bandwidth.
 			if abs( mu - symbol ) <= self.parameters[1]:
 				point_prob = 1
+			else:
+				point_prob = 0
 
 			# Properly weight the point before adding it to the sum
 			distribution_prob += point_prob * self.parameters[2][i]
@@ -974,6 +976,8 @@ cdef class UniformKernelDensity( Distribution ):
 			self.weights = numpy.array(weights) / numpy.sum(weights)
 		else:
 			self.weights = numpy.ones( n ) / n 
+
+		self.parameters = [ self.points, self.parameters[1], self.weights ]
 
 cdef class TriangleKernelDensity( Distribution ):
 	"""
@@ -1056,6 +1060,8 @@ cdef class TriangleKernelDensity( Distribution ):
 			self.weights = numpy.array(weights) / numpy.sum(weights)
 		else:
 			self.weights = numpy.ones( n ) / n 
+
+		self.parameters = [ self.points, self.parameters[1], self.weights ]
 
 cdef class MixtureDistribution( Distribution ):
 	"""
