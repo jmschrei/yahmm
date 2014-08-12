@@ -194,3 +194,14 @@ def test_posterior_emissions():
 			"Posterior emissions incorrect for '{}'".format( seq )
 		assert round( ems.sum() ) == len( seq ), \
 			"Posterior emissions incorrect for '{}'".format( seq )
+
+@with_setup( setup, teardown )
+def test_properties():
+	'''
+	Test a few properties of the model.
+	'''
+
+	assert model.edge_count() == 28
+	assert model.state_count() == 12
+	assert model.name == "Global Alignment"
+	assert model.is_infinite() == False 
