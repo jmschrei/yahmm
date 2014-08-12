@@ -109,7 +109,7 @@ def test_lognormal():
 	'''
 
 	d = LogNormalDistribution( 5, 2 )
-	assert d.log_probability( 5 ) == -4.658512534903223
+	assert round( d.log_probability( 5 ), 4 ) == -4.6585
 
 @with_setup( setup, teardown )
 def test_gamma():
@@ -118,7 +118,7 @@ def test_gamma():
 	'''
 
 	d = GammaDistribution( 5, 2 )
-	assert d.log_probability( 4 ) == -2.167140483068656
+	assert round( d.log_probability( 4 ), 4 ) == -2.1671
 
 @with_setup( setup, teardown )
 def test_exponential():
@@ -127,7 +127,7 @@ def test_exponential():
 	'''
 
 	d = ExponentialDistribution( 3 )
-	assert d.log_probability( 8 ) == -22.90138771133189
+	assert round( d.log_probability( 8 ), 4 ) == -22.9014
 
 @with_setup( setup, teardown )
 def test_inverse_gamma():
@@ -136,7 +136,7 @@ def test_inverse_gamma():
 	'''
 
 	d = InverseGammaDistribution( 4, 5 )
-	assert d.log_probability( 1.06 ) == -0.24579567593905338
+	assert round( d.log_probability( 1.06 ), 4 ) == -0.2458
 
 @with_setup( setup, teardown )
 def test_gaussian_kernel():
@@ -145,14 +145,14 @@ def test_gaussian_kernel():
 	'''
 
 	d = GaussianKernelDensity( [ 0, 4, 3, 5, 7, 4, 2 ] )
-	assert d.log_probability( 3.3 ) == -1.7041719932783466
+	assert round( d.log_probability( 3.3 ), 4 ) == -1.7042
 
 	d.from_sample( [ 1, 6, 8, 3, 2, 4, 7, 2] )
-	assert d.log_probability( 1.2 ) == -2.0237274126309863
+	assert round( d.log_probability( 1.2 ), 4 ) == -2.0237
 
 	d.from_sample( [ 1, 0, 108 ], weights=[2., 3., 278.] )
-	assert d.log_probability( 110 ) == -2.9367643171568742
-	assert d.log_probability( 0 ) == -5.126195893144003
+	assert round( d.log_probability( 110 ), 4 ) == -2.9368
+	assert round( d.log_probability( 0 ), 4 ) == -5.1262
 
 @with_setup( setup, teardown )
 def test_triangular_kernel():
@@ -161,7 +161,7 @@ def test_triangular_kernel():
 	'''
 
 	d = TriangleKernelDensity( [ 1, 6, 3, 4, 5, 2 ] )
-	assert d.log_probability( 6.5 ) == -2.4849066497880004
+	assert round( d.log_probability( 6.5 ), 4 ) == -2.4849
 
 @with_setup( setup, teardown )
 def test_uniform_kernel():
@@ -171,8 +171,8 @@ def test_uniform_kernel():
 
 	d = UniformKernelDensity( [ 1, 3, 5, 6, 2, 2, 3, 2, 2 ] )
 
-	assert d.log_probability( 2.2 ) == -0.4054651081081643
-	assert d.log_probability( 6.2 ) == -2.1972245773362196
+	assert round( d.log_probability( 2.2 ), 4 ) == -0.4055
+	assert round( d.log_probability( 6.2 ), 4 ) == -2.1972
 	assert d.log_probability( 10 ) == float( '-inf' )
 
 @with_setup( setup, teardown )
@@ -184,17 +184,17 @@ def test_mixture():
 	d = MixtureDistribution( [ NormalDistribution( 5, 1 ), 
 							   NormalDistribution( 4, 4 ) ] )
 
-	assert d.log_probability( 6 ) == -1.8018490294558223
-	assert d.log_probability( 5 ) == -1.3951145254551627
-	assert d.log_probability( 4.5 ) == -1.4893802468206498
+	assert round( d.log_probability( 6 ), 4 ) == -1.8018
+	assert round( d.log_probability( 5 ), 4 ) == -1.3951
+	assert round( d.log_probability( 4.5 ), 4 ) == -1.4894
 
 	d = MixtureDistribution( [ NormalDistribution( 5, 1 ),
 	                           NormalDistribution( 4, 4 ) ],
 	                         weights=[1., 7.] )
 
-	assert d.log_probability( 6 ) == -2.2324936044580177
-	assert d.log_probability( 5 ) == -2.006552218742595
-	assert d.log_probability( 4.5 ) == -2.035633980640667
+	assert round( d.log_probability( 6 ), 4 ) == -2.2325
+	assert round( d.log_probability( 5 ), 4 ) == -2.0066
+	assert round( d.log_probability( 4.5 ), 4 ) == -2.0356
 
 @with_setup( setup, teardown )
 def test_multivariate():
@@ -204,14 +204,14 @@ def test_multivariate():
 
 	d = MultivariateDistribution( [ NormalDistribution( 5, 2 ), ExponentialDistribution( 2 ) ] )
 
-	assert d.log_probability( (4,1) ) == -3.0439385332042734
-	assert d.log_probability( ( 100, 0.001 ) ) == -1129.0459385332042
+	assert round( d.log_probability( (4,1) ), 4 ) == -3.0439
+	assert round( d.log_probability( ( 100, 0.001 ) ), 4 ) == -1129.0459
 
 	d = MultivariateDistribution( [ NormalDistribution( 5, 2 ), ExponentialDistribution( 2 ) ],
 								  weights=[18., 1.] )
 
-	assert d.log_probability( (4,1) ) == -32.574395667195994
-	assert d.log_probability( (100, 0.001) ) == -20334.576395667194
+	assert round( d.log_probability( (4,1) ), 4 ) == -32.5744
+	assert round( d.log_probability( (100, 0.001) ), 4 ) == -20334.5764
 
 
 

@@ -201,7 +201,7 @@ def test_properties():
 	Test a few properties of the model.
 	'''
 
-	assert model.edge_count() == 28
+	assert model.edge_count() == 29
 	assert model.state_count() == 12
 	assert model.name == "Global Alignment"
 	assert model.is_infinite() == False 
