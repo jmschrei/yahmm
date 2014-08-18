@@ -16,6 +16,7 @@ import scipy.stats, scipy.sparse, scipy.special
 
 import numpy
 cimport numpy
+
 from matplotlib import pyplot
 
 # Define some useful constants
@@ -101,7 +102,7 @@ cdef class Distribution(object):
 	"""
 
 	cdef public str name
-	cdef public list parameters
+	cdef public list parameters, summaries
 	cdef public numpy.ndarray points
 	cdef public numpy.ndarray weights
 
@@ -118,7 +119,6 @@ cdef class Distribution(object):
 
 		self.name = "Distribution"
 		self.parameters = []
-		self.distributions = {}
 		
 	def copy( self ):
 		"""
@@ -171,6 +171,7 @@ cdef class UniformDistribution(Distribution):
 		
 		# Store the parameters
 		self.parameters = [start, end]
+		self.summaries = []
 		self.name = "UniformDistribution"
 		
 	def log_probability(self, symbol):
@@ -215,6 +216,36 @@ cdef class UniformDistribution(Distribution):
 		self.parameters[0] = numpy.min(items)
 		self.parameters[1] = numpy.max(items)
 
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		if weights is not None:
+			# Throw out items with weight 0
+			items = [ item for item, weight in it.izip( items, weights )
+				if weight > 0 ]
+
+		if len( items ) == 0:
+			# No sample, so just ignore it and keep our own parameters.
+			return
+
+		items = numpy.asarray( items )
+		self.summaries.append([ items.min(), items.max() ])
+		
+	def from_summaries( self ):
+		'''
+		Takes in a series of summaries, represented as a mean, a variance, and
+		a weight, and updates the underlying distribution. Notes on how to do
+		this for a Gaussian distribution were taken from here:
+		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
+		'''
+
+		summaries = numpy.asarray( self.summaries )
+		self.parameters = [ summaries[:,0].min(), summaries[:,1].max() ]
+		self.summaries = []
+
 cdef class NormalDistribution(Distribution):
 	"""
 	A normal distribution based on a mean and standard deviation.
@@ -228,6 +259,7 @@ cdef class NormalDistribution(Distribution):
 		
 		# Store the parameters
 		self.parameters = [mean, std]
+		self.summaries = []
 		self.name = "NormalDistribution"
 
 	def log_probability( self, symbol, epsilon=1E-4 ):
@@ -319,6 +351,47 @@ cdef class NormalDistribution(Distribution):
 		# Set the parameters
 		self.parameters = [mean, std]
 
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		items = numpy.asarray( items )
+		if weights is None:
+			weights = numpy.ones_like( items )
+		else:
+			weights = numpy.asarray( weights )
+
+		mean = numpy.average( items, weights=weights )
+		variance = numpy.dot( items**2 - mean**2, weights ) / weights.sum()
+		self.summaries.append( [ mean, variance, weights.sum() ] )
+		
+
+	def from_summaries( self ):
+		'''
+		Takes in a series of summaries, represented as a mean, a variance, and
+		a weight, and updates the underlying distribution. Notes on how to do
+		this for a Gaussian distribution were taken from here:
+		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
+		'''
+
+		if len( self.summaries ) == 0:
+			return
+
+		summaries = numpy.asarray( self.summaries )
+		mean = numpy.average( summaries[:,0], weights=summaries[:,2] )
+		variance = numpy.sum( [(v+m**2)*w for m, v, w in summaries] ) \
+			/ summaries[:,2].sum() - mean**2
+
+		if variance >= 0:
+			std = csqrt(variance)
+		else:
+			std = 0
+
+		self.parameters = [ mean, std ]
+		self.summaries = []
+
 cdef class LogNormalDistribution(Distribution):
 	"""
 	Represents a lognormal distribution over non-negative floats.
@@ -331,6 +404,7 @@ cdef class LogNormalDistribution(Distribution):
 		normal distribution.
 		"""
 		self.parameters = [ mu, sigma ]
+		self.summaries = []
 		self.name = "LogNormalDistribution"
 
 	def log_probability( self, symbol ):
@@ -413,6 +487,47 @@ cdef class LogNormalDistribution(Distribution):
 		# Set the parameters
 		self.parameters = [mean, std]
 
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		items = numpy.asarray( items )
+		if weights is None:
+			weights = numpy.ones_like( items )
+		else:
+			weights = numpy.asarray( weights )
+
+		mean = numpy.average( numpy.log(items), weights=weights )
+		variance = numpy.dot( numpy.log(items)**2 - mean**2, weights ) / weights.sum()
+		self.summaries.append( [ mean, variance, weights.sum() ] )
+		
+
+	def from_summaries( self ):
+		'''
+		Takes in a series of summaries, represented as a mean, a variance, and
+		a weight, and updates the underlying distribution. Notes on how to do
+		this for a Gaussian distribution were taken from here:
+		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
+		'''
+
+		if len( self.summaries ) == 0:
+			return
+
+		summaries = numpy.asarray( self.summaries )
+		mean = numpy.average( summaries[:,0], weights=summaries[:,2] )
+		variance = numpy.sum( [(v+m**2)*w for m, v, w in summaries] ) \
+			/ summaries[:,2].sum() - mean**2
+
+		if variance >= 0:
+			std = csqrt(variance)
+		else:
+			std = 0
+
+		self.parameters = [ mean, std ]
+		self.summaries = []
+
 cdef class ExtremeValueDistribution( Distribution ):
 	"""
 	Represent a generalized extreme value distribution over floats.
@@ -460,6 +575,7 @@ cdef class ExponentialDistribution(Distribution):
 		"""
 
 		self.parameters = [rate]
+		self.summaries = []
 		self.name = "ExponentialDistribution"
 		
 	def log_probability(self, symbol):
@@ -509,6 +625,37 @@ cdef class ExponentialDistribution(Distribution):
 		
 		# Update parameters
 		self.parameters[0] = 1.0 / weighted_mean
+
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		items = numpy.asarray( items )
+		if weights is None:
+			weights = numpy.ones_like( items )
+		else:
+			weights = numpy.asarray( weights )
+
+		mean = numpy.average( items, weights=weights )
+		self.summaries.append( [ mean, weights.sum() ] )
+
+	def from_summaries( self ):
+		'''
+		Takes in a series of summaries, represented as a mean, a variance, and
+		a weight, and updates the underlying distribution. Notes on how to do
+		this for a Gaussian distribution were taken from here:
+		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
+		'''
+
+		if len( self.summaries ) == 0:
+			return
+
+		summaries = numpy.asarray( self.summaries )
+		mean = numpy.average( summaries[:,0], weights=summaries[:,1] )
+		self.parameters = [ 1.0 / mean ]
+		self.summaries = []
 
 cdef class GammaDistribution(Distribution):
 	"""
@@ -727,6 +874,7 @@ cdef class DiscreteDistribution(Distribution):
 		
 		# Store the parameters
 		self.parameters = [ characters ]
+		self.summaries = []
 		self.name = "DiscreteDistribution"
 
 
@@ -779,6 +927,54 @@ cdef class DiscreteDistribution(Distribution):
 				characters[character] = 1. * weight
 
 		self.parameters = [ characters ]
+
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		items = numpy.asarray( items )
+		if weights is None:
+			weights = numpy.ones_like( items ) / len( items )
+		else:
+			weights = numpy.asarray( weights ) / numpy.sum( weights )
+
+		characters = {}
+		for character, weight in it.izip( items, weights ):
+			try:
+				characters[character] += weight
+			except KeyError:
+				characters[character] = weight
+
+		self.summaries.append( characters )
+
+	def from_summaries( self ):
+		'''
+		Takes in a series of summaries, represented as a mean, a variance, and
+		a weight, and updates the underlying distribution. Notes on how to do
+		this for a Gaussian distribution were taken from here:
+		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
+		'''
+
+		if len( self.summaries ) == 0:
+			return
+
+		characters = {}
+
+		for d in self.summaries:
+			for character, prob in d.items():
+				try:
+					characters[character] += prob
+				except KeyError:
+					characters[character] = prob
+
+		for character, prob in characters.items():
+			characters[character] = prob / len(self.summaries)
+
+		self.parameters = [ characters ]
+		self.summaries = []
+
 
 cdef class LambdaDistribution(Distribution):
 	"""
@@ -3085,7 +3281,7 @@ cdef class Model(object):
 	def train( self, sequences, stop_threshold=1E-9, min_iterations=0,
 		max_iterations=None, algorithm='baum-welch', verbose=True,
 		transition_pseudocount=0, use_pseudocount=False, edge_inertia=0, 
-		emitted_probability_threshold=0 ):
+		emitted_probability_threshold=0, summaries=0 ):
 		"""
 		Given a list of sequences, performs re-estimation on the model
 		parameters. The two supported algorithms are "baum-welch" and
@@ -3152,7 +3348,7 @@ cdef class Model(object):
 			self._train_baum_welch( sequences, stop_threshold,
 				min_iterations, max_iterations, verbose, 
 				transition_pseudocount, use_pseudocount, edge_inertia, 
-				emitted_probability_threshold )
+				emitted_probability_threshold, summaries )
 
 		# If using the labeled training algorithm, then calculate the new
 		# probability sum across the path it chose, instead of the
@@ -3177,7 +3373,7 @@ cdef class Model(object):
 
 	def _train_baum_welch(self, sequences, stop_threshold, min_iterations, 
 		max_iterations, verbose, transition_pseudocount, use_pseudocount,
-		edge_inertia, emitted_probability_threshold ):
+		edge_inertia, emitted_probability_threshold, summaries ):
 		"""
 		Given a list of sequences, perform Baum-Welch iterative re-estimation on
 		the model parameters.
@@ -3200,7 +3396,8 @@ cdef class Model(object):
 
 			# Perform an iteration of Baum-Welch training.
 			self._train_once_baum_welch( sequences, transition_pseudocount, 
-				use_pseudocount, edge_inertia, emitted_probability_threshold )
+				use_pseudocount, edge_inertia, emitted_probability_threshold,
+				summaries )
 
 			# Increase the iteration counter by one.
 			iteration += 1
@@ -3223,7 +3420,7 @@ cdef class Model(object):
 			
 	cdef void _train_once_baum_welch(self, numpy.ndarray sequences, 
 		double transition_pseudocount, int use_pseudocount, double edge_inertia,
-		double emitted_probability_threshold ):
+		double emitted_probability_threshold, int summaries ):
 		"""
 		Implements one iteration of the Baum-Welch algorithm, as described in:
 		http://www.cs.cmu.edu/~durand/03-711/2006/Lectures/hmm-bw.pdf
@@ -3237,11 +3434,13 @@ cdef class Model(object):
 		cdef numpy.ndarray emitted_symbols
 		cdef double [:,:] emission_weights
 		cdef numpy.ndarray sequence
-		cdef double log_sequence_probability, weight
+		cdef double log_sequence_probability
 		cdef double equence_probability_sum
-		cdef int k, i, l, li, m = len( self.states ), n, observation=0
+		cdef int k, i, l, li, m = len( self.states ), n, observation=0, s
 		cdef int characters_so_far = 0
 		cdef object symbol
+		cdef double mean, variance, weight
+		cdef double [:] weights
 
 		cdef int [:] out_edges = self.out_edge_count
 		cdef int [:] in_edges = self.in_edge_count
@@ -3264,7 +3463,7 @@ cdef class Model(object):
 		# non-silent states
 		emission_weights = numpy.zeros(( self.silent_start, total_characters ))
 
-		for sequence in sequences:
+		for s, sequence in enumerate( sequences ):
 			n = len( sequence )
 			# Calculate the emission table
 			e = numpy.zeros(( n, self.silent_start )) 
@@ -3357,7 +3556,7 @@ cdef class Model(object):
 
 				if k < self.silent_start:
 					# Now think about emission probabilities from this state
-
+					weights = numpy.zeros( n )
 					for i in xrange( n ):
 						# For each symbol that came out
 
@@ -3372,9 +3571,12 @@ cdef class Model(object):
 						# sequence probability.
 						weight = cexp(f[i+1, k] + b[i+1, k] - 
 							log_sequence_probability)
-
+						
 						# Add this weight to the weight list for this state
 						emission_weights[k, characters_so_far+i] = weight
+						weights[i] = weight
+
+					self.states[k].distribution.summarize( sequence, weights )
 
 			characters_so_far += n
 
@@ -3429,7 +3631,7 @@ cdef class Model(object):
 		cdef int [:] visited = numpy.zeros( self.silent_start,
 			dtype=numpy.int32 )
 		cdef int [:] tied_states = self.tied_state_count
-		cdef list symbols, weights
+		cdef list symbols, w
 
 		for k in xrange(self.silent_start):
 			# If this distribution has already been trained because it is tied
@@ -3446,7 +3648,7 @@ cdef class Model(object):
 			# states by only training that distribution one time, since many
 			# states are pointing to the same distribution object.
 			symbols = []
-			weights = []
+			w = []
 
 			for i in xrange( total_characters ):
 				# Start off by assuming the probability for this character is
@@ -3465,13 +3667,15 @@ cdef class Model(object):
 				# distribution.
 				if tied_state_probability > emitted_probability_threshold:
 					symbols.append( emitted_symbols[i] )
-					weights.append( tied_state_probability )
+					w.append( tied_state_probability )
 
 			# Now train this distribution on the symbols collected. If there
 			# are tied states, this will be done once per set of tied states
 			# in order to save time.
-			self.states[k].distribution.from_sample( symbols, 
-				weights=weights )
+			if summaries == 1:
+				self.states[k].distribution.from_summaries()
+			else:
+				self.states[k].distribution.from_sample( symbols, w )
 
 
 	cdef void _train_viterbi( self, numpy.ndarray sequences, 
