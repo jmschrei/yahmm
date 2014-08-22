@@ -1,5 +1,5 @@
 #!/usr/bin/env python2.7
-# yahmm.py: Yet Another Hidden Markov Model library
+# yahmm.pyx: Yet Another Hidden Markov Model library
 # Contact: Jacob Schreiber ( jmschreiber91@gmail.com )
 #          Adam Novak ( anovak1@ucsc.edu )
 
@@ -119,6 +119,21 @@ cdef class Distribution(object):
 
 		self.name = "Distribution"
 		self.parameters = []
+
+	def __str__( self ):
+		"""
+		Represent this distribution in a human-readable form.
+		"""
+		parameters = [ list(p) if isinstance(p, numpy.ndarray) else p
+			for p in self.parameters ]
+		return "{}({})".format(self.name, ", ".join(map(str, parameters)))
+
+	def __repr__( self ):
+		"""
+		Represent this distribution in the same format as string.
+		"""
+
+		return self.__str__()
 		
 	def copy( self ):
 		"""
@@ -127,21 +142,21 @@ cdef class Distribution(object):
 
 		return self.__class__( *self.parameters ) 
 
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		Return the log probability of the given symbol under this distribution.
 		"""
 		
 		raise NotImplementedError
 
-	def sample(self):
+	def sample( self ):
 		"""
 		Return a random item sampled from this distribution.
 		"""
 		
 		raise NotImplementedError
 		
-	def from_sample(self, items, weights=None):
+	def from_sample( self, items, weights=None ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -149,14 +164,39 @@ cdef class Distribution(object):
 		"""
 		
 		raise NotImplementedError
-		
-	def __str__(self):
+
+	def summarize( self, items, weights=None ):
 		"""
-		Represent this distribution in a human-readable form.
+		Summarize the incoming items into a summary statistic to be used to
+		update the parameters upon usage of the `from_summaries` method. By
+		default, this will simply store the items and weights into a large
+		sample, and call the `from_sample` method.
 		"""
-		parameters = [ list(p) if isinstance(p, numpy.ndarray) else p
-			for p in self.parameters ]
-		return "{}({})".format(self.name, ", ".join(map(str, parameters)))
+
+		# If no previously stored summaries, just store the incoming data
+		if len( self.summaries ) == 0:
+			self.summaries = [ items, weights ]
+
+		# Otherwise, append the items and weights
+		else:
+			prior_items, prior_weights = self.summaries
+			items = numpy.concatenate( [prior_items, items] )
+
+			# If even one summary lacks weights, then weights can't be assigned
+			# to any of the points.
+			if weights is None:
+				weights = numpy.concatenate( [prior_weights, weights] )
+
+			self.summaries = [ prior_items, weights ]
+
+	def from_summaries( self ):
+		"""
+		Update the parameters of the distribution based on the summaries stored
+		previously. 
+		"""
+
+		self.from_sample( *self.summaries )
+		self.summaries = []
 
 cdef class UniformDistribution( Distribution ):
 	"""
@@ -286,7 +326,7 @@ cdef class NormalDistribution( Distribution ):
   
 		return _log( 1.0 / ( sigma * SQRT_2_PI ) ) - ((symbol - mu) ** 2) /\
 			(2 * sigma ** 2)
-			
+
 	def sample( self ):
 		"""
 		Sample from this normal distribution and return the value sampled.
@@ -999,20 +1039,15 @@ cdef class DiscreteDistribution(Distribution):
 		self.name = "DiscreteDistribution"
 
 
-	def log_probability(self, symbol, pseudocounts=None ):
+	def log_probability(self, symbol ):
 		"""
 		What's the probability of the given symbol under this distribution?
 		Simply the log probability value given at initiation. If the symbol
-		is not part of the discrete distribution, return 0 or a pseudocount
-		of .001. 
+		is not part of the discrete distribution, return a log probability
+		of NEGINF.
 		"""
 
-		if symbol in self.parameters[0]:
-			return log( self.parameters[0][symbol] )
-		else:
-			if pseudocounts:
-				return pseudocounts
-			return NEGINF    
+		return log( self.parameters[0].get( symbol, 0 ) )
 			
 	def sample(self):
 		"""
@@ -1034,8 +1069,9 @@ cdef class DiscreteDistribution(Distribution):
 		normalized to sum to 1 and used.
 		"""
 
+		n = len( items )
 		if weights is None:
-			weights = numpy.ones_like( items ) / len( items )
+			weights = numpy.ones( n ) / n
 		else:
 			weights = numpy.array(weights) / numpy.sum(weights)
 
@@ -1054,9 +1090,9 @@ cdef class DiscreteDistribution(Distribution):
 		summary statistic to be used in training later.
 		'''
 
-		items = numpy.asarray( items )
+		n = len( items )
 		if weights is None:
-			weights = numpy.ones_like( items ) / len( items )
+			weights = numpy.ones( n ) / len( n )
 		else:
 			weights = numpy.asarray( weights ) / numpy.sum( weights )
 
