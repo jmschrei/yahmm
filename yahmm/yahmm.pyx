@@ -158,12 +158,12 @@ cdef class Distribution(object):
 			for p in self.parameters ]
 		return "{}({})".format(self.name, ", ".join(map(str, parameters)))
 
-cdef class UniformDistribution(Distribution):
+cdef class UniformDistribution( Distribution ):
 	"""
 	A uniform distribution between two values.
 	"""
 
-	def __init__(self, start, end):
+	def __init__( self, start, end ):
 		"""
 		Make a new Uniform distribution over floats between start and end, 
 		inclusive. Start and end must not be equal.
@@ -174,7 +174,7 @@ cdef class UniformDistribution(Distribution):
 		self.summaries = []
 		self.name = "UniformDistribution"
 		
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		What's the probability of the given float under this distribution?
 		"""
@@ -246,7 +246,7 @@ cdef class UniformDistribution(Distribution):
 		self.parameters = [ summaries[:,0].min(), summaries[:,1].max() ]
 		self.summaries = []
 
-cdef class NormalDistribution(Distribution):
+cdef class NormalDistribution( Distribution ):
 	"""
 	A normal distribution based on a mean and standard deviation.
 	"""
@@ -392,7 +392,7 @@ cdef class NormalDistribution(Distribution):
 		self.parameters = [ mean, std ]
 		self.summaries = []
 
-cdef class LogNormalDistribution(Distribution):
+cdef class LogNormalDistribution( Distribution ):
 	"""
 	Represents a lognormal distribution over non-negative floats.
 	"""
@@ -563,12 +563,12 @@ cdef class ExtremeValueDistribution( Distribution ):
 		return -clog( sigma ) + clog( 1 + epsilon * t ) * (-1. / epsilon - 1) \
 			- ( 1 + epsilon * t ) ** ( -1. / epsilon )
 
-cdef class ExponentialDistribution(Distribution):
+cdef class ExponentialDistribution( Distribution ):
 	"""
 	Represents an exponential distribution on non-negative floats.
 	"""
 	
-	def __init__(self, rate):
+	def __init__( self, rate ):
 		"""
 		Make a new inverse gamma distribution. The parameter is called "rate" 
 		because lambda is taken.
@@ -578,7 +578,7 @@ cdef class ExponentialDistribution(Distribution):
 		self.summaries = []
 		self.name = "ExponentialDistribution"
 		
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		What's the probability of the given float under this distribution?
 		"""
@@ -593,7 +593,7 @@ cdef class ExponentialDistribution(Distribution):
 		
 		return random.expovariate(*self.parameters)
 		
-	def from_sample(self, items, weights=None):
+	def from_sample( self, items, weights=None ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -657,7 +657,7 @@ cdef class ExponentialDistribution(Distribution):
 		self.parameters = [ 1.0 / mean ]
 		self.summaries = []
 
-cdef class GammaDistribution(Distribution):
+cdef class GammaDistribution( Distribution ):
 	"""
 	This distribution represents a gamma distribution, parameterized in the 
 	alpha/beta (shape/rate) parameterization. ML estimation for a gamma 
@@ -666,16 +666,17 @@ cdef class GammaDistribution(Distribution):
 	cobbled together a solution here from less-reputable sources.
 	"""
 	
-	def __init__(self, alpha, beta):
+	def __init__( self, alpha, beta ):
 		"""
 		Make a new gamma distribution. Alpha is the shape parameter and beta is 
 		the rate parameter.
 		"""
 		
 		self.parameters = [alpha, beta]
+		self.summaries = []
 		self.name = "GammaDistribution"
 		
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		What's the probability of the given float under this distribution?
 		"""
@@ -697,8 +698,8 @@ cdef class GammaDistribution(Distribution):
 		# alpha/beta are shape/scale. So we have to mess with the parameters.
 		return random.gammavariate(self.parameters[0], 1.0 / self.parameters[1])
 		
-	def from_sample(self, items, weights=None, epsilon=1E-9, 
-		iteration_limit = 1000):
+	def from_sample( self, items, weights=None, epsilon=1E-9, 
+		iteration_limit = 1000 ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -792,45 +793,148 @@ cdef class GammaDistribution(Distribution):
 				
 		# Now our iterative estimation of the shape parameter has converged.
 		# Calculate the rate parameter
-		rate = 1.0 / (1.0 / (shape * weights.sum()) * items.dot(weights).sum())
+		rate = 1.0 / (1.0 / (shape * weights.sum()) * items.dot(weights) )
 
 		# Set the estimated parameters
 		self.parameters = [shape, rate]    
 
-cdef class InverseGammaDistribution(GammaDistribution):
+	def summarize( self, items, weights=None ):
+		"""
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		"""
+
+		if len(items) == 0:
+			# No sample, so just ignore it and keep our old parameters.
+			return
+
+		# Make it be a numpy array
+		items = numpy.asarray(items)
+		
+		if weights is None:
+			# Weight everything 1 if no weights specified
+			weights = numpy.ones_like(items)
+		else:
+			# Force whatever we have to be a Numpy array
+			weights = numpy.asarray(weights)
+
+		if weights.sum() == 0:
+			# Since negative weights are banned, we must have no data.
+			# Don't change the parameters at all.
+			return
+
+		# Save the weighted average of the items, and the weighted average of
+		# the log of the items.
+		self.summaries.append( [ numpy.average( items, weights=weights ),
+								 numpy.average( log(items), weights=weights ),
+								 items.dot( weights ),
+								 weights.sum() ] )
+
+	def from_summaries( self, epsilon=1E-9, iteration_limit=1000 ):
+		'''
+		Set the parameters of this Distribution to maximize the likelihood of 
+		the given sample given the summaries which have been stored.
+		
+		In the Gamma case, likelihood maximization is necesarily numerical, and 
+		the extension to weighted values is not trivially obvious. The algorithm
+		used here includes a Newton-Raphson step for shape parameter estimation,
+		and analytical calculation of the rate parameter. The extension to 
+		weights is constructed using vital information found way down at the 
+		bottom of an Experts Exchange page.
+		
+		Newton-Raphson continues until the change in the parameter is less than 
+		epsilon, or until iteration_limit is reached
+
+		See:
+		http://en.wikipedia.org/wiki/Gamma_distribution
+		http://www.experts-exchange.com/Other/Math_Science/Q_23943764.html
+		'''
+
+		# First, do Newton-Raphson for shape parameter.
+		
+		# Calculate the sufficient statistic s, which is the log of the average 
+		# minus the average log. When computing the average log, we weight 
+		# outside the log function. (In retrospect, this is actually pretty 
+		# obvious.)
+		summaries = numpy.array( self.summaries )
+
+		statistic = math.log( numpy.average( summaries[:,0], 
+											 weights=summaries[:,3] ) ) - \
+					numpy.average( summaries[:,1], 
+								   weights=summaries[:,3] )
+
+		# Start our Newton-Raphson at what Wikipedia claims a 1969 paper claims 
+		# is a good approximation.
+		# Really, start with new_shape set, and shape set to be far away from it
+		shape = float("inf")
+		
+		if statistic != 0:
+			# Not going to have a divide by 0 problem here, so use the good
+			# estimate
+			new_shape =  (3 - statistic + math.sqrt((statistic - 3) ** 2 + 24 * 
+				statistic)) / (12 * statistic)
+		if statistic == 0 or new_shape <= 0:
+			# Try the current shape parameter
+			new_shape = self.parameters[0]
+
+		# Count the iterations we take
+		iteration = 0
+			
+		# Now do the update loop.
+		# We need the digamma (gamma derivative over gamma) and trigamma 
+		# (digamma derivative) functions. Luckily, scipy.special.polygamma(0, x)
+		# is the digamma function (0th derivative of the digamma), and 
+		# scipy.special.polygamma(1, x) is the trigamma function.
+		while abs(shape - new_shape) > epsilon and iteration < iteration_limit:
+			shape = new_shape
+			
+			new_shape = shape - (log(shape) - 
+				scipy.special.polygamma(0, shape) -
+				statistic) / (1.0 / shape - scipy.special.polygamma(1, shape))
+			
+			# Don't let shape escape from valid values
+			if abs(new_shape) == float("inf") or new_shape == 0:
+				# Hack the shape parameter so we don't stop the loop if we land
+				# near it.
+				shape = new_shape
+				
+				# Re-start at some random place.
+				new_shape = random.random()
+				
+			iteration += 1
+			
+		# Might as well grab the new value
+		shape = new_shape
+				
+		# Now our iterative estimation of the shape parameter has converged.
+		# Calculate the rate parameter
+		rate = 1.0 / (1.0 / (shape * summaries[:,3].sum()) * \
+			numpy.sum( summaries[:,2] ) )
+
+		# Set the estimated parameters
+		self.parameters = [shape, rate]
+		self.summaries = []  		
+
+cdef class InverseGammaDistribution( GammaDistribution ):
 	"""
 	This distribution represents an inverse gamma distribution (1/the RV ~ gamma
 	with the same parameters). A distribution over non-negative floats.
 	
 	We cheat and don't have to do much work by inheriting from the 
 	GammaDistribution.
-	
-	Tests:
-	
-	>>> random.seed(0)
-	
-	>>> distribution = InverseGammaDistribution(10, 0.5)
-	>>> weights = numpy.array([random.random() for i in xrange(10000)])
-	>>> distribution.write(sys.stdout)
-	InverseGammaDistribution 10 0.5
-	
-	>>> sample = numpy.array([distribution.sample() for i in xrange(10000)])
-	>>> distribution.from_sample(sample)
-	>>> distribution.write(sys.stdout)
-	InverseGammaDistribution 9.9756999562413196 0.4958491351206667
-	
 	"""
 	
-	def __init__(self, alpha, beta):
+	def __init__( self, alpha, beta ):
 		"""
 		Make a new inverse gamma distribution. Alpha is the shape parameter and 
 		beta is the scale parameter.
 		"""
 		
 		self.parameters = [alpha, beta]
+		self.summaries = []
 		self.name = "InverseGammaDistribution"
 		
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		What's the probability of the given float under this distribution?
 		"""
@@ -845,9 +949,9 @@ cdef class InverseGammaDistribution(GammaDistribution):
 		"""
 		
 		# Invert the sample from the gamma distribution.
-		return 1.0 / super(InverseGammaDistribution, self).sample()
+		return 1.0 / super( InverseGammaDistribution, self ).sample()
 		
-	def from_sample(self, items, weights=None):
+	def from_sample( self, items, weights=None ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -855,8 +959,25 @@ cdef class InverseGammaDistribution(GammaDistribution):
 		"""
 		
 		# Fit the gamma distribution on the inverted items.
-		super(InverseGammaDistribution, self).from_sample(1.0 / 
-			numpy.asarray(items), weights=weights)
+		super( InverseGammaDistribution, self ).from_sample( 1.0 / 
+			numpy.asarray( items ), weights=weights)
+
+	def summarize( self, items, weights=None ):
+		"""
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		"""
+
+		super( InverseGammaDistribution, self ).summarize( 
+			1.0 / numpy.asarray( items ),  weights=weights )
+
+	def from_summaries( self, epsilon=1E-9, iteration_limit=1000 ):
+		'''
+		Update the parameters based on the summaries stored.
+		'''
+
+		super( InverseGammaDistribution, self ).from_summaries(
+			epsilon=epsilon, iteration_limit=iteration_limit )
 
 cdef class DiscreteDistribution(Distribution):
 	"""
@@ -874,7 +995,7 @@ cdef class DiscreteDistribution(Distribution):
 		
 		# Store the parameters
 		self.parameters = [ characters ]
-		self.summaries = []
+		self.summaries = [ {}, 0 ]
 		self.name = "DiscreteDistribution"
 
 
@@ -913,18 +1034,17 @@ cdef class DiscreteDistribution(Distribution):
 		normalized to sum to 1 and used.
 		"""
 
-		n = len(items)
-		if weights:
-			weights = numpy.array(weights) / numpy.sum(weights)
+		if weights is None:
+			weights = numpy.ones_like( items ) / len( items )
 		else:
-			weights = numpy.ones(n) / n
+			weights = numpy.array(weights) / numpy.sum(weights)
 
 		characters = {}
 		for character, weight in it.izip( items, weights ):
 			try:
-				characters[character] += 1. * weight
+				characters[character] += weight
 			except KeyError:
-				characters[character] = 1. * weight
+				characters[character] = weight
 
 		self.parameters = [ characters ]
 
@@ -940,40 +1060,31 @@ cdef class DiscreteDistribution(Distribution):
 		else:
 			weights = numpy.asarray( weights ) / numpy.sum( weights )
 
-		characters = {}
+		characters = self.summaries[0]
 		for character, weight in it.izip( items, weights ):
 			try:
 				characters[character] += weight
 			except KeyError:
 				characters[character] = weight
 
-		self.summaries.append( characters )
+		self.summaries[0] = characters
+		self.summaries[1] += 1
 
 	def from_summaries( self ):
 		'''
-		Takes in a series of summaries, represented as a mean, a variance, and
-		a weight, and updates the underlying distribution. Notes on how to do
-		this for a Gaussian distribution were taken from here:
-		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
+		Takes in a series of summaries and merge them.
 		'''
 
 		if len( self.summaries ) == 0:
 			return
 
-		characters = {}
-
-		for d in self.summaries:
-			for character, prob in d.items():
-				try:
-					characters[character] += prob
-				except KeyError:
-					characters[character] = prob
+		characters, n = self.summaries 
 
 		for character, prob in characters.items():
-			characters[character] = prob / len(self.summaries)
+			characters[character] = prob / n 
 
 		self.parameters = [ characters ]
-		self.summaries = []
+		self.summaries = [ {}, 0 ]
 
 
 cdef class LambdaDistribution(Distribution):
