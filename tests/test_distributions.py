@@ -50,6 +50,20 @@ def test_normal():
 	assert d.parameters == [ 95.342857142857142, 20.827558927640887 ]
 	assert d.log_probability( 50 ) == -6.325011936564346
 
+	d = NormalDistribution( 5, 2 )
+	d.from_sample( [ 0, 5, 3, 5, 7, 3, 4, 5, 2 ], inertia=0.5 )
+
+	assert round( d.parameters[0], 4 ) == 4.3889
+	assert round( d.parameters[1], 4 ) == 1.9655 
+
+	d.summarize( [ 0, 2 ], weights=[0, 5] )
+	d.summarize( [ 3, 2 ], weights=[2, 3] )
+	d.summarize( [ 100 ], weights=[200] )
+	d.from_summaries()
+
+	assert round( d.parameters[0], 4 ) == 95.3429
+	assert round( d.parameters[1], 4 ) == 20.8276
+
 @with_setup( setup, teardown )
 def test_uniform():
 	'''
@@ -74,6 +88,31 @@ def test_uniform():
 	for i in xrange( 100 ):
 		sample = d.sample()
 		assert data.min() <= sample <= data.max()
+
+	d = UniformDistribution( 0, 10 )
+	d.from_sample( [ -5, 20 ], inertia=0.5 )
+
+	assert d.parameters[0] == -2.5
+	assert d.parameters[1] == 15
+
+	d.from_sample( [ -100, 100 ], inertia=1.0 )
+
+	assert d.parameters[0] == -2.5
+	assert d.parameters[1] == 15
+
+	d.summarize( [ 0, 50, 2, 24, 28 ] )
+	d.summarize( [ -20, 7, 8, 4 ] )
+	d.from_summaries( inertia=0.75 )
+
+	assert d.parameters[0] == -6.875
+	assert d.parameters[1] == 23.75
+
+	d.summarize( [ 0, 100 ] )
+	d.summarize( [ 100, 200 ] )
+	d.from_summaries()
+
+	assert d.parameters[0] == 0
+	assert d.parameters[1] == 200
 
 @with_setup( setup, teardown )
 def test_discrete():
@@ -102,6 +141,29 @@ def test_discrete():
 	assert d.log_probability( 'C' ) == -3.044522437723423
 	assert d.log_probability( 'G' ) == -0.5596157879354228
 
+	d.summarize( list("ACG"), weights=[0., 1., 2.] )
+	d.summarize( list("TGT"), weights=[3., 4., 5.] )
+	d.summarize( list("G"), weights=[6.] )
+	d.from_summaries()
+
+	assert d.log_probability( 'A' ) == float( '-inf' )
+	assert round( d.log_probability( 'C' ), 4 ) == -3.0445
+	assert round( d.log_probability( 'G' ), 4 ) == -0.5596
+
+	d = DiscreteDistribution( { 'A': 0.0, 'B': 1.0 } )
+	d.summarize( list( "ABABABAB" ) )
+	d.summarize( list( "ABAB" ) )
+	d.summarize( list( "BABABABABABABABABA" ) )
+	d.from_summaries( inertia=0.75 )
+	assert d.parameters[0] == { 'A': 0.125, 'B': 0.875 }
+ 
+	d = DiscreteDistribution( { 'A': 0.0, 'B': 1.0 } )
+	d.summarize( list( "ABABABAB" ) )
+	d.summarize( list( "ABAB" ) )
+	d.summarize( list( "BABABABABABABABABA" ) )
+	d.from_summaries( inertia=0.5 )
+	assert d.parameters[0] == { 'A': 0.25, 'B': 0.75 }
+
 @with_setup( setup, teardown )
 def test_lognormal():
 	'''
@@ -110,6 +172,18 @@ def test_lognormal():
 
 	d = LogNormalDistribution( 5, 2 )
 	assert round( d.log_probability( 5 ), 4 ) == -4.6585
+
+	d.from_sample( [ 5.1, 5.03, 4.98, 5.05, 4.91, 5.2, 5.1, 5., 4.8, 5.21 ])
+	assert round( d.parameters[0], 4 ) == 1.6167
+	assert round( d.parameters[1], 4 ) == 0.0237
+
+	d.summarize( [5.1, 5.03, 4.98, 5.05] )
+	d.summarize( [4.91, 5.2, 5.1] )
+	d.summarize( [5., 4.8, 5.21] )
+	d.from_summaries()
+
+	assert round( d.parameters[0], 4 ) == 1.6167
+	assert round( d.parameters[1], 4 ) == 0.0237
 
 @with_setup( setup, teardown )
 def test_gamma():
@@ -120,6 +194,21 @@ def test_gamma():
 	d = GammaDistribution( 5, 2 )
 	assert round( d.log_probability( 4 ), 4 ) == -2.1671
 
+	d.from_sample( [ 2.3, 4.3, 2.7, 2.3, 3.1, 3.2, 3.4, 3.1, 2.9, 2.8 ] )
+	assert round( d.parameters[0], 4 ) == 31.8806
+	assert round( d.parameters[1], 4 ) == 10.5916
+
+	d = GammaDistribution( 2, 7 )
+	assert round( d.log_probability( 4 ), 4 ) != -2.1671
+
+	d.summarize( [2.3, 4.3, 2.7] )
+	d.summarize( [2.3, 3.1, 3.2] )
+	d.summarize( [3.4, 3.1, 2.9, 2.8] )
+	d.from_summaries()
+
+	assert round( d.parameters[0], 4 ) == 31.8806
+	assert round( d.parameters[1], 4 ) == 10.5916
+
 @with_setup( setup, teardown )
 def test_exponential():
 	'''
@@ -129,6 +218,20 @@ def test_exponential():
 	d = ExponentialDistribution( 3 )
 	assert round( d.log_probability( 8 ), 4 ) == -22.9014
 
+	d.from_sample( [ 2.7, 2.9, 3.8, 1.9, 2.7, 1.6, 1.3, 1.0, 1.9 ] )
+	assert round( d.parameters[0], 4 ) == 0.4545
+
+	d = ExponentialDistribution( 4 )
+	assert round( d.log_probability( 8 ), 4 ) != -22.9014
+
+	d.summarize( [2.7, 2.9, 3.8] )
+	d.summarize( [1.9, 2.7, 1.6] )
+	d.summarize( [1.3, 1.0, 1.9] )
+	d.from_summaries()
+
+	print (d.parameters)
+	assert round( d.parameters[0], 4 ) == 0.4545
+
 @with_setup( setup, teardown )
 def test_inverse_gamma():
 	'''
@@ -137,6 +240,22 @@ def test_inverse_gamma():
 
 	d = InverseGammaDistribution( 4, 5 )
 	assert round( d.log_probability( 1.06 ), 4 ) == -0.2458
+
+	d.from_sample( [ 0.1, 0.2, 0.015, 0.1, 0.09, 0.08, 0.07, 0.075, 0.044 ] )
+	assert round( d.parameters[0], 4 ) == 1.9565
+	assert round( d.parameters[1], 4 ) == 0.1063
+
+	d = InverseGammaDistribution( 5, 4 )
+	assert round( d.log_probability( 1.06 ), 4 ) != -0.2458 
+
+	d.summarize( [0.1, 0.2, 0.015] )
+	d.summarize( [0.1, 0.09, 0.08] )
+	d.summarize( [0.07, 0.075] )
+	d.summarize( [0.044] )
+	d.from_summaries()
+
+	assert round( d.parameters[0], 4 ) == 1.9565
+	assert round( d.parameters[1], 4 ) == 0.1063	
 
 @with_setup( setup, teardown )
 def test_gaussian_kernel():
@@ -154,6 +273,17 @@ def test_gaussian_kernel():
 	assert round( d.log_probability( 110 ), 4 ) == -2.9368
 	assert round( d.log_probability( 0 ), 4 ) == -5.1262
 
+	d.summarize( [1, 6, 8, 3] )
+	d.summarize( [2, 4, 7] )
+	d.summarize( [2] )
+	d.from_summaries()
+	assert round( d.log_probability( 1.2 ), 4 ) == -2.0237
+
+	d.summarize( [ 1, 0, 108 ], weights=[2., 3., 278.] )
+	d.from_summaries()
+	assert round( d.log_probability( 110 ), 4 ) == -2.9368
+	assert round( d.log_probability( 0 ), 4 ) == -5.1262
+
 @with_setup( setup, teardown )
 def test_triangular_kernel():
 	'''
@@ -162,6 +292,16 @@ def test_triangular_kernel():
 
 	d = TriangleKernelDensity( [ 1, 6, 3, 4, 5, 2 ] )
 	assert round( d.log_probability( 6.5 ), 4 ) == -2.4849
+
+	d = TriangleKernelDensity( [1, 8, 100] )
+	assert round( d.log_probability( 6.5 ), 4 ) != -2.4849
+
+	d.summarize( [1, 6] )
+	d.summarize( [3, 4, 5] )
+	d.summarize( [2] )
+	d.from_summaries()
+	assert round( d.log_probability( 6.5 ), 4 ) == -2.4849
+
 
 @with_setup( setup, teardown )
 def test_uniform_kernel():
@@ -174,6 +314,16 @@ def test_uniform_kernel():
 	assert round( d.log_probability( 2.2 ), 4 ) == -0.4055
 	assert round( d.log_probability( 6.2 ), 4 ) == -2.1972
 	assert d.log_probability( 10 ) == float( '-inf' )
+
+	d = UniformKernelDensity( [ 1, 100, 200 ] )
+	assert round( d.log_probability( 2.2 ), 4 ) != -0.4055
+	assert round( d.log_probability( 6.2 ), 4 ) != -2.1972
+
+	d.summarize( [1, 3, 5, 6, 2] )
+	d.summarize( [2, 3, 2, 2] )
+	d.from_summaries()
+	assert round( d.log_probability( 2.2 ), 4 ) == -0.4055
+	assert round( d.log_probability( 6.2 ), 4 ) == -2.1972
 
 @with_setup( setup, teardown )
 def test_mixture():
@@ -213,5 +363,42 @@ def test_multivariate():
 	assert round( d.log_probability( (4,1) ), 4 ) == -32.5744
 	assert round( d.log_probability( (100, 0.001) ), 4 ) == -20334.5764
 
+	d.from_sample( [ (5, 1), (5.2, 1.7), (4.7, 1.9), (4.9, 2.4), (4.5, 1.2) ] )
 
+	assert round( d.parameters[0][0].parameters[0], 4 ) == 4.86
+	assert round( d.parameters[0][0].parameters[1], 4 ) == 0.2417
+	assert round( d.parameters[0][1].parameters[0], 4 ) == 0.6098
 
+	d = MultivariateDistribution( [ NormalDistribution( 5, 2 ),
+									UniformDistribution( 0, 10 ) ] )
+	d.from_sample( [ ( 0, 0 ), ( 5, 0 ), ( 3, 0 ), ( 5, -5 ), ( 7, 0 ),
+				     ( 3, 0 ), ( 4, 0 ), ( 5, 0 ), ( 2, 20) ], inertia=0.5 )
+
+	assert round( d.parameters[0][0].parameters[0], 4 ) == 4.3889
+	assert round( d.parameters[0][0].parameters[1], 4 ) == 1.9655 
+
+	assert d.parameters[0][1].parameters[0] == -2.5
+	assert d.parameters[0][1].parameters[1] == 15
+
+	d.from_sample( [ ( 0, 0 ), ( 5, 0 ), ( 3, 0 ), ( 5, -5 ), ( 7, 0 ),
+				     ( 3, 0 ), ( 4, 0 ), ( 5, 0 ), ( 2, 20 ) ], inertia=0.75 )
+
+	assert round( d.parameters[0][0].parameters[0], 4 ) != 4.3889
+	assert round( d.parameters[0][0].parameters[1], 4 ) != 1.9655 
+
+	assert d.parameters[0][1].parameters[0] != -2.5
+	assert d.parameters[0][1].parameters[1] != 15
+
+	d = MultivariateDistribution([ NormalDistribution( 5, 2 ),
+								   UniformDistribution( 0, 10 ) ])
+
+	d.summarize([ ( 0, 0 ), ( 5, 0 ), ( 3, 0 ) ])
+	d.summarize([ ( 5, -5 ), ( 7, 0 ) ])
+	d.summarize([ ( 3, 0 ), ( 4, 0 ), ( 5, 0 ), ( 2, 20 ) ])
+	d.from_summaries( inertia=0.5 )
+
+	assert round( d.parameters[0][0].parameters[0], 4 ) == 4.3889
+	assert round( d.parameters[0][0].parameters[1], 4 ) == 1.9655 
+
+	assert d.parameters[0][1].parameters[0] == -2.5
+	assert d.parameters[0][1].parameters[1] == 15

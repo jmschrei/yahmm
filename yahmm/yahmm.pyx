@@ -1,5 +1,5 @@
 #!/usr/bin/env python2.7
-# yahmm.py: Yet Another Hidden Markov Model library
+# yahmm.pyx: Yet Another Hidden Markov Model library
 # Contact: Jacob Schreiber ( jmschreiber91@gmail.com )
 #          Adam Novak ( anovak1@ucsc.edu )
 
@@ -16,6 +16,7 @@ import scipy.stats, scipy.sparse, scipy.special
 
 import numpy
 cimport numpy
+
 from matplotlib import pyplot
 
 # Define some useful constants
@@ -101,9 +102,7 @@ cdef class Distribution(object):
 	"""
 
 	cdef public str name
-	cdef public list parameters
-	cdef public numpy.ndarray points
-	cdef public numpy.ndarray weights
+	cdef public list parameters, summaries
 
 	def __init__(self):
 		"""
@@ -118,7 +117,22 @@ cdef class Distribution(object):
 
 		self.name = "Distribution"
 		self.parameters = []
-		self.distributions = {}
+		self.summaries = []
+
+	def __str__( self ):
+		"""
+		Represent this distribution in a human-readable form.
+		"""
+		parameters = [ list(p) if isinstance(p, numpy.ndarray) else p
+			for p in self.parameters ]
+		return "{}({})".format(self.name, ", ".join(map(str, parameters)))
+
+	def __repr__( self ):
+		"""
+		Represent this distribution in the same format as string.
+		"""
+
+		return self.__str__()
 		
 	def copy( self ):
 		"""
@@ -127,21 +141,21 @@ cdef class Distribution(object):
 
 		return self.__class__( *self.parameters ) 
 
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		Return the log probability of the given symbol under this distribution.
 		"""
 		
 		raise NotImplementedError
 
-	def sample(self):
+	def sample( self ):
 		"""
 		Return a random item sampled from this distribution.
 		"""
 		
 		raise NotImplementedError
 		
-	def from_sample(self, items, weights=None):
+	def from_sample( self, items, weights=None ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -149,21 +163,46 @@ cdef class Distribution(object):
 		"""
 		
 		raise NotImplementedError
-		
-	def __str__(self):
-		"""
-		Represent this distribution in a human-readable form.
-		"""
-		parameters = [ list(p) if isinstance(p, numpy.ndarray) else p
-			for p in self.parameters ]
-		return "{}({})".format(self.name, ", ".join(map(str, parameters)))
 
-cdef class UniformDistribution(Distribution):
+	def summarize( self, items, weights=None ):
+		"""
+		Summarize the incoming items into a summary statistic to be used to
+		update the parameters upon usage of the `from_summaries` method. By
+		default, this will simply store the items and weights into a large
+		sample, and call the `from_sample` method.
+		"""
+
+		# If no previously stored summaries, just store the incoming data
+		if len( self.summaries ) == 0:
+			self.summaries = [ items, weights ]
+
+		# Otherwise, append the items and weights
+		else:
+			prior_items, prior_weights = self.summaries
+			items = numpy.concatenate( [prior_items, items] )
+
+			# If even one summary lacks weights, then weights can't be assigned
+			# to any of the points.
+			if weights is not None:
+				weights = numpy.concatenate( [prior_weights, weights] )
+
+			self.summaries = [ items, weights ]
+
+	def from_summaries( self ):
+		"""
+		Update the parameters of the distribution based on the summaries stored
+		previously. 
+		"""
+
+		self.from_sample( *self.summaries )
+		self.summaries = []
+
+cdef class UniformDistribution( Distribution ):
 	"""
 	A uniform distribution between two values.
 	"""
 
-	def __init__(self, start, end):
+	def __init__( self, start, end ):
 		"""
 		Make a new Uniform distribution over floats between start and end, 
 		inclusive. Start and end must not be equal.
@@ -171,9 +210,10 @@ cdef class UniformDistribution(Distribution):
 		
 		# Store the parameters
 		self.parameters = [start, end]
+		self.summaries = []
 		self.name = "UniformDistribution"
 		
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		What's the probability of the given float under this distribution?
 		"""
@@ -194,7 +234,7 @@ cdef class UniformDistribution(Distribution):
 		
 		return random.uniform(self.parameters[0], self.parameters[1])
 		
-	def from_sample(self, items, weights=None):
+	def from_sample (self, items, weights=None, inertia=0.0 ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -210,12 +250,55 @@ cdef class UniformDistribution(Distribution):
 			# No sample, so just ignore it and keep our old parameters.
 			return
 		
-		# The ML uniform distribution is just min to max.
-		# Weights don't matter for this
-		self.parameters[0] = numpy.min(items)
-		self.parameters[1] = numpy.max(items)
+		# The ML uniform distribution is just min to max. Weights don't matter
+		# for this.
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		prior_min, prior_max = self.parameters
+		self.parameters[0] = prior_min*inertia + numpy.min(items)*(1-inertia)
+		self.parameters[1] = prior_max*inertia + numpy.max(items)*(1-inertia)
 
-cdef class NormalDistribution(Distribution):
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		if weights is not None:
+			# Throw out items with weight 0
+			items = [ item for item, weight in it.izip( items, weights )
+				if weight > 0 ]
+
+		if len( items ) == 0:
+			# No sample, so just ignore it and keep our own parameters.
+			return
+
+		items = numpy.asarray( items )
+
+		# Record the min and max, which are the summary statistics for a
+		# uniform distribution.
+		self.summaries.append([ items.min(), items.max() ])
+		
+	def from_summaries( self, inertia=0.0 ):
+		'''
+		Takes in a series of summaries, consisting of the minimum and maximum
+		of a sample, and determine the global minimum and maximum.
+		'''
+
+		summaries = numpy.asarray( self.summaries )
+
+		# Load the prior parameters
+		prior_min, prior_max = self.parameters
+
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		self.parameters = [ prior_min*inertia + summaries[:,0].min()*(1-inertia), 
+							prior_max*inertia + summaries[:,1].max()*(1-inertia) ]
+		self.summaries = []
+
+cdef class NormalDistribution( Distribution ):
 	"""
 	A normal distribution based on a mean and standard deviation.
 	"""
@@ -228,6 +311,7 @@ cdef class NormalDistribution(Distribution):
 		
 		# Store the parameters
 		self.parameters = [mean, std]
+		self.summaries = []
 		self.name = "NormalDistribution"
 
 	def log_probability( self, symbol, epsilon=1E-4 ):
@@ -254,7 +338,7 @@ cdef class NormalDistribution(Distribution):
   
 		return _log( 1.0 / ( sigma * SQRT_2_PI ) ) - ((symbol - mu) ** 2) /\
 			(2 * sigma ** 2)
-			
+
 	def sample( self ):
 		"""
 		Sample from this normal distribution and return the value sampled.
@@ -263,7 +347,7 @@ cdef class NormalDistribution(Distribution):
 		# This uses the same parameterization
 		return random.normalvariate(*self.parameters)
 		
-	def from_sample( self, items, weights=None, min_std=0.01 ):
+	def from_sample( self, items, weights=None, inertia=0.0, min_std=0.01 ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -316,10 +400,73 @@ cdef class NormalDistribution(Distribution):
 		
 		# Enforce min std
 		std = max( numpy.array([std, min_std]) )
-		# Set the parameters
-		self.parameters = [mean, std]
+		
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		prior_mean, prior_std = self.parameters
+		self.parameters = [ prior_mean*inertia + mean*(1-inertia), 
+							prior_std*inertia + std*(1-inertia) ]
 
-cdef class LogNormalDistribution(Distribution):
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		items = numpy.asarray( items )
+
+		# Calculate weights. If none are provided, give uniform weights
+		if weights is None:
+			weights = numpy.ones_like( items )
+		else:
+			weights = numpy.asarray( weights )
+
+		# Save the mean and variance, the summary statistics for a normal
+		# distribution.
+		mean = numpy.average( items, weights=weights )
+		variance = numpy.dot( items**2 - mean**2, weights ) / weights.sum()
+
+		# Append the mean, variance, and sum of the weights to give the weights
+		# of these statistics.
+		self.summaries.append( [ mean, variance, weights.sum() ] )
+		
+
+	def from_summaries( self, inertia=0.0 ):
+		'''
+		Takes in a series of summaries, represented as a mean, a variance, and
+		a weight, and updates the underlying distribution. Notes on how to do
+		this for a Gaussian distribution were taken from here:
+		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
+		'''
+
+		# If no summaries stored, don't do anything.
+		if len( self.summaries ) == 0:
+			return
+
+		summaries = numpy.asarray( self.summaries )
+
+		# Calculate the new mean and variance. 
+		mean = numpy.average( summaries[:,0], weights=summaries[:,2] )
+		variance = numpy.sum( [(v+m**2)*w for m, v, w in summaries] ) \
+			/ summaries[:,2].sum() - mean**2
+
+		if variance >= 0:
+			std = csqrt(variance)
+		else:
+			std = 0
+
+		# Get the previous parameters.
+		prior_mean, prior_std = self.parameters
+
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		self.parameters = [ prior_mean*inertia + mean*(1-inertia),
+							prior_std*inertia + std*(1-inertia) ]
+		self.summaries = []
+
+cdef class LogNormalDistribution( Distribution ):
 	"""
 	Represents a lognormal distribution over non-negative floats.
 	"""
@@ -331,6 +478,7 @@ cdef class LogNormalDistribution(Distribution):
 		normal distribution.
 		"""
 		self.parameters = [ mu, sigma ]
+		self.summaries = []
 		self.name = "LogNormalDistribution"
 
 	def log_probability( self, symbol ):
@@ -357,7 +505,7 @@ cdef class LogNormalDistribution(Distribution):
 
 		return numpy.random.lognormal( *self.parameters )
 
-	def from_sample( self, items, weights=None, min_std=0.01 ):
+	def from_sample( self, items, weights=None, inertia=0.0, min_std=0.01 ):
 		"""
 		Set the parameters of this distribution to maximize the likelihood of
 		the given samples. Items hold some sort of sequence over floats. If
@@ -410,8 +558,70 @@ cdef class LogNormalDistribution(Distribution):
 		
 		# Enforce min std
 		std = max( numpy.array([std, min_std]) )
-		# Set the parameters
-		self.parameters = [mean, std]
+		
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		prior_mean, prior_std = self.parameters
+		self.parameters = [ prior_mean*inertia + mean*(1-inertia), 
+						    prior_std*inertia + std*(1-inertia) ]
+
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		items = numpy.asarray( items )
+
+		# If no weights are specified, use uniform weights.
+		if weights is None:
+			weights = numpy.ones_like( items )
+		else:
+			weights = numpy.asarray( weights )
+
+		# Calculate the mean and variance, which are the summary statistics
+		# for a log-normal distribution.
+		mean = numpy.average( numpy.log(items), weights=weights )
+		variance = numpy.dot( numpy.log(items)**2 - mean**2, weights ) / weights.sum()
+		
+		# Save the summary statistics and the weights.
+		self.summaries.append( [ mean, variance, weights.sum() ] )
+		
+
+	def from_summaries( self, inertia=0.0 ):
+		'''
+		Takes in a series of summaries, represented as a mean, a variance, and
+		a weight, and updates the underlying distribution. Notes on how to do
+		this for a Gaussian distribution were taken from here:
+		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
+		'''
+
+		# If no summaries are provided, don't do anything.
+		if len( self.summaries ) == 0:
+			return
+
+		summaries = numpy.asarray( self.summaries )
+
+		# Calculate the mean and variance from the summary statistics.
+		mean = numpy.average( summaries[:,0], weights=summaries[:,2] )
+		variance = numpy.sum( [(v+m**2)*w for m, v, w in summaries] ) \
+			/ summaries[:,2].sum() - mean**2
+
+		if variance >= 0:
+			std = csqrt(variance)
+		else:
+			std = 0
+
+		# Load the previous parameters
+		prior_mean, prior_std = self.parameters
+
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		self.parameters = [ prior_mean*inertia + mean*(1-inertia), 
+						    prior_std*inertia + std*(1-inertia) ]
+		self.summaries = []
 
 cdef class ExtremeValueDistribution( Distribution ):
 	"""
@@ -448,21 +658,22 @@ cdef class ExtremeValueDistribution( Distribution ):
 		return -clog( sigma ) + clog( 1 + epsilon * t ) * (-1. / epsilon - 1) \
 			- ( 1 + epsilon * t ) ** ( -1. / epsilon )
 
-cdef class ExponentialDistribution(Distribution):
+cdef class ExponentialDistribution( Distribution ):
 	"""
 	Represents an exponential distribution on non-negative floats.
 	"""
 	
-	def __init__(self, rate):
+	def __init__( self, rate ):
 		"""
 		Make a new inverse gamma distribution. The parameter is called "rate" 
 		because lambda is taken.
 		"""
 
 		self.parameters = [rate]
+		self.summaries = []
 		self.name = "ExponentialDistribution"
 		
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		What's the probability of the given float under this distribution?
 		"""
@@ -477,7 +688,7 @@ cdef class ExponentialDistribution(Distribution):
 		
 		return random.expovariate(*self.parameters)
 		
-	def from_sample(self, items, weights=None):
+	def from_sample( self, items, weights=None, inertia=0.0 ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -507,10 +718,60 @@ cdef class ExponentialDistribution(Distribution):
 		# Compute the weighted mean
 		weighted_mean = numpy.average(items, weights=weights)
 		
-		# Update parameters
-		self.parameters[0] = 1.0 / weighted_mean
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		prior_rate = self.parameters[0]
+		rate = 1.0 / weighted_mean
 
-cdef class GammaDistribution(Distribution):
+		self.parameters[0] = prior_rate*inertia + rate*(1-inertia)
+
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		items = numpy.asarray( items )
+
+		# Either store the weights, or assign uniform weights to each item
+		if weights is None:
+			weights = numpy.ones_like( items )
+		else:
+			weights = numpy.asarray( weights )
+
+		# Calculate the summary statistic, which in this case is the mean.
+		mean = numpy.average( items, weights=weights )
+		self.summaries.append( [ mean, weights.sum() ] )
+
+	def from_summaries( self, inertia=0.0 ):
+		'''
+		Takes in a series of summaries, represented as a mean, a variance, and
+		a weight, and updates the underlying distribution. Notes on how to do
+		this for a Gaussian distribution were taken from here:
+		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
+		'''
+
+		# If no summaries, do nothing.
+		if len( self.summaries ) == 0:
+			return
+
+		summaries = numpy.asarray( self.summaries )
+
+		# Calculate the new parameter from the summary statistics.
+		mean = numpy.average( summaries[:,0], weights=summaries[:,1] )
+
+		# Get the parameters
+		prior_rate = self.parameters[0]
+		rate = 1.0 / mean
+
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		self.parameters[0] = prior_rate*inertia + rate*(1-inertia)
+		self.summaries = []
+
+cdef class GammaDistribution( Distribution ):
 	"""
 	This distribution represents a gamma distribution, parameterized in the 
 	alpha/beta (shape/rate) parameterization. ML estimation for a gamma 
@@ -519,16 +780,17 @@ cdef class GammaDistribution(Distribution):
 	cobbled together a solution here from less-reputable sources.
 	"""
 	
-	def __init__(self, alpha, beta):
+	def __init__( self, alpha, beta ):
 		"""
 		Make a new gamma distribution. Alpha is the shape parameter and beta is 
 		the rate parameter.
 		"""
 		
 		self.parameters = [alpha, beta]
+		self.summaries = []
 		self.name = "GammaDistribution"
 		
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		What's the probability of the given float under this distribution?
 		"""
@@ -550,8 +812,8 @@ cdef class GammaDistribution(Distribution):
 		# alpha/beta are shape/scale. So we have to mess with the parameters.
 		return random.gammavariate(self.parameters[0], 1.0 / self.parameters[1])
 		
-	def from_sample(self, items, weights=None, epsilon=1E-9, 
-		iteration_limit = 1000):
+	def from_sample( self, items, weights=None, inertia=0.0, epsilon=1E-9, 
+		iteration_limit = 1000 ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -645,45 +907,161 @@ cdef class GammaDistribution(Distribution):
 				
 		# Now our iterative estimation of the shape parameter has converged.
 		# Calculate the rate parameter
-		rate = 1.0 / (1.0 / (shape * weights.sum()) * items.dot(weights).sum())
+		rate = 1.0 / (1.0 / (shape * weights.sum()) * items.dot(weights) )
 
-		# Set the estimated parameters
-		self.parameters = [shape, rate]    
+		# Get the previous parameters
+		prior_shape, prior_rate = self.parameters
 
-cdef class InverseGammaDistribution(GammaDistribution):
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		self.parameters = [ prior_shape*inertia + shape*(1-inertia), 
+							prior_rate*inertia + rate*(1-inertia) ]    
+
+	def summarize( self, items, weights=None ):
+		"""
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		"""
+
+		if len(items) == 0:
+			# No sample, so just ignore it and keep our old parameters.
+			return
+
+		# Make it be a numpy array
+		items = numpy.asarray(items)
+		
+		if weights is None:
+			# Weight everything 1 if no weights specified
+			weights = numpy.ones_like(items)
+		else:
+			# Force whatever we have to be a Numpy array
+			weights = numpy.asarray(weights)
+
+		if weights.sum() == 0:
+			# Since negative weights are banned, we must have no data.
+			# Don't change the parameters at all.
+			return
+
+		# Save the weighted average of the items, and the weighted average of
+		# the log of the items.
+		self.summaries.append( [ numpy.average( items, weights=weights ),
+								 numpy.average( log(items), weights=weights ),
+								 items.dot( weights ),
+								 weights.sum() ] )
+
+	def from_summaries( self, inertia=0.0, epsilon=1E-9, 
+		iteration_limit=1000 ):
+		'''
+		Set the parameters of this Distribution to maximize the likelihood of 
+		the given sample given the summaries which have been stored.
+		
+		In the Gamma case, likelihood maximization is necesarily numerical, and 
+		the extension to weighted values is not trivially obvious. The algorithm
+		used here includes a Newton-Raphson step for shape parameter estimation,
+		and analytical calculation of the rate parameter. The extension to 
+		weights is constructed using vital information found way down at the 
+		bottom of an Experts Exchange page.
+		
+		Newton-Raphson continues until the change in the parameter is less than 
+		epsilon, or until iteration_limit is reached
+
+		See:
+		http://en.wikipedia.org/wiki/Gamma_distribution
+		http://www.experts-exchange.com/Other/Math_Science/Q_23943764.html
+		'''
+
+		# First, do Newton-Raphson for shape parameter.
+		
+		# Calculate the sufficient statistic s, which is the log of the average 
+		# minus the average log. When computing the average log, we weight 
+		# outside the log function. (In retrospect, this is actually pretty 
+		# obvious.)
+		summaries = numpy.array( self.summaries )
+
+		statistic = math.log( numpy.average( summaries[:,0], 
+											 weights=summaries[:,3] ) ) - \
+					numpy.average( summaries[:,1], 
+								   weights=summaries[:,3] )
+
+		# Start our Newton-Raphson at what Wikipedia claims a 1969 paper claims 
+		# is a good approximation.
+		# Really, start with new_shape set, and shape set to be far away from it
+		shape = float("inf")
+		
+		if statistic != 0:
+			# Not going to have a divide by 0 problem here, so use the good
+			# estimate
+			new_shape =  (3 - statistic + math.sqrt((statistic - 3) ** 2 + 24 * 
+				statistic)) / (12 * statistic)
+		if statistic == 0 or new_shape <= 0:
+			# Try the current shape parameter
+			new_shape = self.parameters[0]
+
+		# Count the iterations we take
+		iteration = 0
+			
+		# Now do the update loop.
+		# We need the digamma (gamma derivative over gamma) and trigamma 
+		# (digamma derivative) functions. Luckily, scipy.special.polygamma(0, x)
+		# is the digamma function (0th derivative of the digamma), and 
+		# scipy.special.polygamma(1, x) is the trigamma function.
+		while abs(shape - new_shape) > epsilon and iteration < iteration_limit:
+			shape = new_shape
+			
+			new_shape = shape - (log(shape) - 
+				scipy.special.polygamma(0, shape) -
+				statistic) / (1.0 / shape - scipy.special.polygamma(1, shape))
+			
+			# Don't let shape escape from valid values
+			if abs(new_shape) == float("inf") or new_shape == 0:
+				# Hack the shape parameter so we don't stop the loop if we land
+				# near it.
+				shape = new_shape
+				
+				# Re-start at some random place.
+				new_shape = random.random()
+				
+			iteration += 1
+			
+		# Might as well grab the new value
+		shape = new_shape
+				
+		# Now our iterative estimation of the shape parameter has converged.
+		# Calculate the rate parameter
+		rate = 1.0 / (1.0 / (shape * summaries[:,3].sum()) * \
+			numpy.sum( summaries[:,2] ) )
+
+		# Get the previous parameters
+		prior_shape, prior_rate = self.parameters
+
+		# Calculate the new parameters, respecting inertia, with an inertia
+		# of 0 being completely replacing the parameters, and an inertia of
+		# 1 being to ignore new training data.
+		self.parameters = [ prior_shape*inertia + shape*(1-inertia), 
+							prior_rate*inertia + rate*(1-inertia) ]
+		self.summaries = []  		
+
+cdef class InverseGammaDistribution( GammaDistribution ):
 	"""
 	This distribution represents an inverse gamma distribution (1/the RV ~ gamma
 	with the same parameters). A distribution over non-negative floats.
 	
 	We cheat and don't have to do much work by inheriting from the 
 	GammaDistribution.
-	
-	Tests:
-	
-	>>> random.seed(0)
-	
-	>>> distribution = InverseGammaDistribution(10, 0.5)
-	>>> weights = numpy.array([random.random() for i in xrange(10000)])
-	>>> distribution.write(sys.stdout)
-	InverseGammaDistribution 10 0.5
-	
-	>>> sample = numpy.array([distribution.sample() for i in xrange(10000)])
-	>>> distribution.from_sample(sample)
-	>>> distribution.write(sys.stdout)
-	InverseGammaDistribution 9.9756999562413196 0.4958491351206667
-	
 	"""
 	
-	def __init__(self, alpha, beta):
+	def __init__( self, alpha, beta ):
 		"""
 		Make a new inverse gamma distribution. Alpha is the shape parameter and 
 		beta is the scale parameter.
 		"""
 		
 		self.parameters = [alpha, beta]
+		self.summaries = []
 		self.name = "InverseGammaDistribution"
 		
-	def log_probability(self, symbol):
+	def log_probability( self, symbol ):
 		"""
 		What's the probability of the given float under this distribution?
 		"""
@@ -698,9 +1076,9 @@ cdef class InverseGammaDistribution(GammaDistribution):
 		"""
 		
 		# Invert the sample from the gamma distribution.
-		return 1.0 / super(InverseGammaDistribution, self).sample()
+		return 1.0 / super( InverseGammaDistribution, self ).sample()
 		
-	def from_sample(self, items, weights=None):
+	def from_sample( self, items, weights=None, inertia=0.0 ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -708,8 +1086,25 @@ cdef class InverseGammaDistribution(GammaDistribution):
 		"""
 		
 		# Fit the gamma distribution on the inverted items.
-		super(InverseGammaDistribution, self).from_sample(1.0 / 
-			numpy.asarray(items), weights=weights)
+		super( InverseGammaDistribution, self ).from_sample( 1.0 / 
+			numpy.asarray( items ), weights=weights, inertia=inertia )
+
+	def summarize( self, items, weights=None ):
+		"""
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		"""
+
+		super( InverseGammaDistribution, self ).summarize( 
+			1.0 / numpy.asarray( items ),  weights=weights )
+
+	def from_summaries( self, inertia=0.0, epsilon=1E-9, iteration_limit=1000 ):
+		'''
+		Update the parameters based on the summaries stored.
+		'''
+
+		super( InverseGammaDistribution, self ).from_summaries(
+			epsilon=epsilon, iteration_limit=iteration_limit, inertia=inertia )
 
 cdef class DiscreteDistribution(Distribution):
 	"""
@@ -727,23 +1122,19 @@ cdef class DiscreteDistribution(Distribution):
 		
 		# Store the parameters
 		self.parameters = [ characters ]
+		self.summaries = [ {}, 0 ]
 		self.name = "DiscreteDistribution"
 
 
-	def log_probability(self, symbol, pseudocounts=None ):
+	def log_probability(self, symbol ):
 		"""
 		What's the probability of the given symbol under this distribution?
 		Simply the log probability value given at initiation. If the symbol
-		is not part of the discrete distribution, return 0 or a pseudocount
-		of .001. 
+		is not part of the discrete distribution, return a log probability
+		of NEGINF.
 		"""
 
-		if symbol in self.parameters[0]:
-			return log( self.parameters[0][symbol] )
-		else:
-			if pseudocounts:
-				return pseudocounts
-			return NEGINF    
+		return log( self.parameters[0].get( symbol, 0 ) )
 			
 	def sample(self):
 		"""
@@ -757,7 +1148,7 @@ cdef class DiscreteDistribution(Distribution):
 				return key
 			rand -= value
 	
-	def from_sample( self, items, weights=None ):
+	def from_sample( self, items, weights=None, inertia=0.0 ):
 		"""
 		Takes in an iterable representing samples from a distribution and
 		turn it into a discrete distribution. If no weights are provided,
@@ -765,20 +1156,86 @@ cdef class DiscreteDistribution(Distribution):
 		normalized to sum to 1 and used.
 		"""
 
-		n = len(items)
-		if weights:
-			weights = numpy.array(weights) / numpy.sum(weights)
-		else:
-			weights = numpy.ones(n) / n
+		n = len( items )
 
+		# Normalize weights, or assign uniform probabilities
+		if weights is None:
+			weights = numpy.ones( n ) / n
+		else:
+			weights = numpy.array(weights) / numpy.sum(weights)
+
+		# Sum the weights seen for each character
 		characters = {}
 		for character, weight in it.izip( items, weights ):
 			try:
-				characters[character] += 1. * weight
+				characters[character] += weight
 			except KeyError:
-				characters[character] = 1. * weight
+				characters[character] = weight
+
+		# Adjust the new weights by the inertia
+		for character, weight in characters.items():
+			characters[character] = weight * (1-inertia)
+
+		# Adjust the old weights by the inertia
+		prior_characters = self.parameters[0]
+		for character, weight in prior_characters.items():
+			try:
+				characters[character] += weight * inertia
+			except KeyError:
+				characters[character] = weight * inertia
 
 		self.parameters = [ characters ]
+
+	def summarize( self, items, weights=None ):
+		'''
+		Take in a series of items and their weights and reduce it down to a
+		summary statistic to be used in training later.
+		'''
+
+		n = len( items )
+		if weights is None:
+			weights = numpy.ones( n )
+		else:
+			weights = numpy.asarray( weights )
+
+		characters = self.summaries[0]
+		for character, weight in it.izip( items, weights ):
+			try:
+				characters[character] += weight
+			except KeyError:
+				characters[character] = weight
+
+		self.summaries[0] = characters
+		self.summaries[1] += weights.sum()
+
+	def from_summaries( self, inertia=0.0 ):
+		'''
+		Takes in a series of summaries and merge them.
+		'''
+
+		if len( self.summaries ) == 0:
+			return
+
+		# Unpack the variables
+		prior_characters = self.parameters[0]
+		characters, total_weight = self.summaries 
+
+		# Scale the characters by both the total number of weights and by
+		# the inertia.
+		for character, prob in characters.items():
+			characters[character] = ( prob / total_weight ) * (1-inertia)
+
+		# Adjust the old weights by the inertia
+		if inertia > 0.0:
+			for character, weight in prior_characters.items():
+				try:
+					characters[character] += weight * inertia
+				except KeyError:
+					characters[character] = weight * inertia
+
+		self.parameters = [ characters ]
+		self.summaries = [ {}, 0 ]
+
 
 cdef class LambdaDistribution(Distribution):
 	"""
@@ -825,14 +1282,16 @@ cdef class GaussianKernelDensity( Distribution ):
 		Weights are scaled so that they sum to 1. 
 		"""
 
+		points = numpy.asarray( points )
 		n = len(points)
+		
 		if weights:
-			self.weights = numpy.array(weights) / numpy.sum(weights)
+			weights = numpy.array(weights) / numpy.sum(weights)
 		else:
-			self.weights = numpy.ones( n ) / n 
+			weights = numpy.ones( n ) / n 
 
-		self.points = numpy.array( points )
-		self.parameters = [ self.points, bandwidth, self.weights ]
+		self.parameters = [ points, bandwidth, weights ]
+		self.summaries = []
 		self.name = "GaussianKernelDensity"
 
 	def log_probability( self, symbol ):
@@ -878,20 +1337,31 @@ cdef class GaussianKernelDensity( Distribution ):
 		mu = numpy.random.choice( self.parameters[0], p=self.parameters[2] )
 		return random.gauss( mu, self.parameters[1] )
 
-	def from_sample( self, points, weights=None ):
+	def from_sample( self, points, weights=None, inertia=0.0 ):
 		"""
-		Replace the points, training without inertia.
+		Replace the points, allowing for inertia if specified.
 		"""
 
-		self.points = numpy.array( points )
-
+		points = numpy.asarray( points )
 		n = len(points)
-		if weights:
-			self.weights = numpy.array(weights) / numpy.sum(weights)
-		else:
-			self.weights = numpy.ones( n ) / n 
 
-		self.parameters = [ self.points, self.parameters[1], self.weights ]
+		# Get the weights, or assign uniform weights
+		if weights:
+			weights = numpy.array(weights) / numpy.sum(weights)
+		else:
+			weights = numpy.ones( n ) / n 
+
+		# If no inertia, get rid of the previous points
+		if inertia == 0.0:
+			self.parameters[0] = points
+			self.parameters[2] = weights
+
+		# Otherwise adjust weights appropriately
+		else: 
+			self.parameters[0] = numpy.concatenate( ( self.parameters[0],
+													  points ) )
+			self.parameters[2] = numpy.concatenate( ( self.parameters[2]*inertia,
+													  weights*(1-inertia) ) )
 
 cdef class UniformKernelDensity( Distribution ):
 	"""
@@ -907,14 +1377,15 @@ cdef class UniformKernelDensity( Distribution ):
 		Weights are scaled so that they sum to 1. 
 		"""
 
+		points = numpy.asarray( points )
 		n = len(points)
 		if weights:
-			self.weights = numpy.array(weights) / numpy.sum(weights)
+			weights = numpy.array(weights) / numpy.sum(weights)
 		else:
-			self.weights = numpy.ones( n ) / n 
+			weights = numpy.ones( n ) / n 
 
-		self.points = numpy.array( points )
-		self.parameters = [ self.points, bandwidth, self.weights ]
+		self.parameters = [ points, bandwidth, weights ]
+		self.summaries = []
 		self.name = "UniformKernelDensity"
 
 	def log_probability( self, symbol ):
@@ -960,24 +1431,35 @@ cdef class UniformKernelDensity( Distribution ):
 		or uniformly if not, and then randomly sampling from that point's PDF.
 		"""
 
-		mu = numpy.random.choice( self.points, p=self.weights )
+		mu = numpy.random.choice( self.parameters[0], p=self.parameters[2] )
 		bandwidth = self.parameters[1]
 		return random.uniform( mu-bandwidth, mu+bandwidth )
 
-	def from_sample( self, points, weights=None ):
+	def from_sample( self, points, weights=None, inertia=0.0 ):
 		"""
-		Replace the points, training without inertia.
+		Replace the points, allowing for inertia if specified.
 		"""
 
-		self.points = numpy.array( points )
-
+		points = numpy.asarray( points )
 		n = len(points)
-		if weights:
-			self.weights = numpy.array(weights) / numpy.sum(weights)
-		else:
-			self.weights = numpy.ones( n ) / n 
 
-		self.parameters = [ self.points, self.parameters[1], self.weights ]
+		# Get the weights, or assign uniform weights
+		if weights:
+			weights = numpy.array(weights) / numpy.sum(weights)
+		else:
+			weights = numpy.ones( n ) / n 
+
+		# If no inertia, get rid of the previous points
+		if inertia == 0.0:
+			self.parameters[0] = points
+			self.parameters[2] = weights
+
+		# Otherwise adjust weights appropriately
+		else: 
+			self.parameters[0] = numpy.concatenate( ( self.parameters[0],
+													  points ) )
+			self.parameters[2] = numpy.concatenate( ( self.parameters[2]*inertia,
+													  weights*(1-inertia) ) )
 
 cdef class TriangleKernelDensity( Distribution ):
 	"""
@@ -993,14 +1475,15 @@ cdef class TriangleKernelDensity( Distribution ):
 		Weights are scaled so that they sum to 1. 
 		"""
 
+		points = numpy.asarray( points )
 		n = len(points)
 		if weights:
-			self.weights = numpy.array(weights) / numpy.sum(weights)
+			weights = numpy.array(weights) / numpy.sum(weights)
 		else:
-			self.weights = numpy.ones( n ) / n 
+			weights = numpy.ones( n ) / n 
 
-		self.points = numpy.array( points )
-		self.parameters = [ self.points, bandwidth, self.weights ]
+		self.parameters = [ points, bandwidth, weights ]
+		self.summaries = []
 		self.name = "TriangleKernelDensity"
 
 	def log_probability( self, symbol ):
@@ -1044,24 +1527,35 @@ cdef class TriangleKernelDensity( Distribution ):
 		or uniformly if not, and then randomly sampling from that point's PDF.
 		"""
 
-		mu = numpy.random.choice( self.points, p=self.weights )
+		mu = numpy.random.choice( self.parameters[0], p=self.parameters[2] )
 		bandwidth = self.parameters[1]
 		return random.triangular( mu-bandwidth, mu+bandwidth, mu )
 
-	def from_sample( self, points, weights=None ):
+	def from_sample( self, points, weights=None, inertia=0.0 ):
 		"""
-		Replace the points, training without inertia.
+		Replace the points, allowing for inertia if specified.
 		"""
 
-		self.points = numpy.array( points )
-
+		points = numpy.asarray( points )
 		n = len(points)
-		if weights:
-			self.weights = numpy.array(weights) / numpy.sum(weights)
-		else:
-			self.weights = numpy.ones( n ) / n 
 
-		self.parameters = [ self.points, self.parameters[1], self.weights ]
+		# Get the weights, or assign uniform weights
+		if weights:
+			weights = numpy.array(weights) / numpy.sum(weights)
+		else:
+			weights = numpy.ones( n ) / n 
+
+		# If no inertia, get rid of the previous points
+		if inertia == 0.0:
+			self.parameters[0] = points
+			self.parameters[2] = weights
+
+		# Otherwise adjust weights appropriately
+		else: 
+			self.parameters[0] = numpy.concatenate( ( self.parameters[0],
+													  points ) )
+			self.parameters[2] = numpy.concatenate( ( self.parameters[2]*inertia,
+													  weights*(1-inertia) ) )
 
 cdef class MixtureDistribution( Distribution ):
 	"""
@@ -1078,11 +1572,11 @@ cdef class MixtureDistribution( Distribution ):
 		"""
 		n = len(distributions)
 		if weights:
-			self.weights = numpy.array( weights ) / numpy.sum( weights )
+			weights = numpy.array( weights ) / numpy.sum( weights )
 		else:
-			self.weights = numpy.ones(n) / n
+			weights = numpy.ones(n) / n
 
-		self.parameters = [ distributions, self.weights ]
+		self.parameters = [ distributions, weights ]
 		self.name = "MixtureDistribution"
 
 	def __str__( self ):
@@ -1184,16 +1678,37 @@ cdef class MultivariateDistribution( Distribution ):
 
 		return [ d.sample() for d in self.parameters[0] ]
 
-	def from_sample( self, items, weights=None ):
+	def from_sample( self, items, weights=None, inertia=0.0 ):
 		"""
 		Items are tuples, and so each distribution can be trained
 		independently of each other. 
 		"""
 
-		items = numpy.array( items )
+		items = numpy.asarray( items )
 
 		for i, d in enumerate( self.parameters[0] ):
-			d.from_sample( items[:,i], weights=weights )
+			d.from_sample( items[:,i], weights=weights, inertia=inertia )
+
+	def summarize( self, items, weights=None ):
+		"""
+		Take in an array of items and reduce it down to summary statistics. For
+		a multivariate distribution, this involves just passing the appropriate
+		data down to the appropriate distributions.
+		"""
+
+		items = numpy.asarray( items )
+
+		for i, d in enumerate( self.parameters[0] ):
+			d.summarize( items[:,i], weights=weights )
+
+	def from_summaries( self, inertia=0.0 ):
+		"""
+		Use the collected summary statistics in order to update the
+		distributions.
+		"""
+
+		for d in self.parameters[0]:
+			d.from_summaries( inertia=inertia )
 
 
 cdef class State(object):
@@ -3084,22 +3599,26 @@ cdef class Model(object):
 
 	def train( self, sequences, stop_threshold=1E-9, min_iterations=0,
 		max_iterations=None, algorithm='baum-welch', verbose=True,
-		transition_pseudocount=0, use_pseudocount=False, edge_inertia=0, 
-		emitted_probability_threshold=0 ):
+		transition_pseudocount=0, use_pseudocount=False, edge_inertia=0.0,
+		distribution_inertia=0.0 ):
 		"""
 		Given a list of sequences, performs re-estimation on the model
 		parameters. The two supported algorithms are "baum-welch" and
-		"viterbi," indicating their respective algorithm. Neither algorithm
-		makes use of inertia, meaning that the previous graph model is
-		thrown out and replaced with the one generated from the training
-		algorithm.
+		"viterbi," indicating their respective algorithm. 
+
+		Use either a uniform transition_pseudocount, or the
+		previously specified ones by toggling use_pseudocount if pseudocounts
+		are needed. edge_inertia can make the new edge parameters be a mix of
+		new parameters and the old ones, and distribution_inertia does the same
+		thing for distributions instead of transitions.
 
 		Baum-Welch: Iterates until the log of the "score" (total likelihood of 
 		all sequences) changes by less than stop_threshold. Returns the final 
 		log score.
 	
-		
-		Always trains for at least min_iterations.
+		Always trains for at least min_iterations, and terminate either when
+		reaching max_iterations, or the training improvement is smaller than
+		stop_threshold.
 
 		Viterbi: Training performed by running each sequence through the
 		viterbi decoding algorithm. Edge weight re-estimation is done by 
@@ -3130,7 +3649,7 @@ cdef class Model(object):
 				[self.log_probability( seq, path ) for seq, path in sequences])
 		
 			self._train_labelled( sequences, transition_pseudocount, 
-				use_pseudocount, edge_inertia )
+				use_pseudocount, edge_inertia, distribution_inertia )
 		else:
 			# Take the logsumexp of the log probabilities of the sequences.
 			# Since sequences is just a list of sequences now, we can map
@@ -3146,13 +3665,13 @@ cdef class Model(object):
 
 		if algorithm.lower() == 'viterbi':
 			self._train_viterbi( sequences, transition_pseudocount,
-				use_pseudocount, edge_inertia )
+				use_pseudocount, edge_inertia, distribution_inertia )
 
 		elif algorithm.lower() == 'baum-welch':
 			self._train_baum_welch( sequences, stop_threshold,
 				min_iterations, max_iterations, verbose, 
-				transition_pseudocount, use_pseudocount, edge_inertia, 
-				emitted_probability_threshold )
+				transition_pseudocount, use_pseudocount, edge_inertia,
+				distribution_inertia )
 
 		# If using the labeled training algorithm, then calculate the new
 		# probability sum across the path it chose, instead of the
@@ -3177,7 +3696,7 @@ cdef class Model(object):
 
 	def _train_baum_welch(self, sequences, stop_threshold, min_iterations, 
 		max_iterations, verbose, transition_pseudocount, use_pseudocount,
-		edge_inertia, emitted_probability_threshold ):
+		edge_inertia, distribution_inertia ):
 		"""
 		Given a list of sequences, perform Baum-Welch iterative re-estimation on
 		the model parameters.
@@ -3200,7 +3719,7 @@ cdef class Model(object):
 
 			# Perform an iteration of Baum-Welch training.
 			self._train_once_baum_welch( sequences, transition_pseudocount, 
-				use_pseudocount, edge_inertia, emitted_probability_threshold )
+				use_pseudocount, edge_inertia, distribution_inertia )
 
 			# Increase the iteration counter by one.
 			iteration += 1
@@ -3222,8 +3741,8 @@ cdef class Model(object):
 				print( "Training improvement: {}".format(improvement) )
 			
 	cdef void _train_once_baum_welch(self, numpy.ndarray sequences, 
-		double transition_pseudocount, int use_pseudocount, double edge_inertia,
-		double emitted_probability_threshold ):
+		double transition_pseudocount, int use_pseudocount, 
+		double edge_inertia, double distribution_inertia ):
 		"""
 		Implements one iteration of the Baum-Welch algorithm, as described in:
 		http://www.cs.cmu.edu/~durand/03-711/2006/Lectures/hmm-bw.pdf
@@ -3234,35 +3753,26 @@ cdef class Model(object):
 
 		cdef double [:,:] transition_log_probabilities 
 		cdef double [:,:] expected_transitions, e, f, b
-		cdef numpy.ndarray emitted_symbols
 		cdef double [:,:] emission_weights
 		cdef numpy.ndarray sequence
-		cdef double log_sequence_probability, weight
-		cdef double equence_probability_sum
+		cdef double log_sequence_probability
+		cdef double sequence_probability_sum
 		cdef int k, i, l, li, m = len( self.states ), n, observation=0
 		cdef int characters_so_far = 0
 		cdef object symbol
+		cdef double [:] weights
 
 		cdef int [:] out_edges = self.out_edge_count
 		cdef int [:] in_edges = self.in_edge_count
+
+		# Define several helped variables.
+		cdef int [:] visited
+		cdef int [:] tied_states = self.tied_state_count
 
 		# Find the expected number of transitions between each pair of states, 
 		# given our data and our current parameters, but allowing the paths 
 		# taken to vary. (Indexed: from, to)
 		expected_transitions = numpy.zeros(( m, m ))
-
-		# We also need to keep a list of all emitted symbols, and a list of 
-		# weights for each state for each of those symbols.
-		# This is the concatenated list of emitted symbols
-		total_characters = 0
-		for sequence in sequences:
-			total_characters += len( sequence )
-
-		emitted_symbols = numpy.zeros( total_characters, dtype=type(sequences[0][0]) )
-
-		# This is a list lists of symbol weights, by state number, for 
-		# non-silent states
-		emission_weights = numpy.zeros(( self.silent_start, total_characters ))
 
 		for sequence in sequences:
 			n = len( sequence )
@@ -3293,10 +3803,9 @@ cdef class Model(object):
 			# Fill in the backward DP matrix.
 			b = self.backward(sequence)
 
-			# Save the sequence in the running list of all emitted symbols
-			for i in xrange( n ):
-				emitted_symbols[characters_so_far+i] = sequence[i]
-
+			# Set the visited array to entirely 0s, meaning we haven't visited
+			# any states yet. 
+			visited = numpy.zeros( self.silent_start, dtype=numpy.int32 )
 			for k in xrange( m ):
 				# For each state we could have come from
 				for l in xrange( out_edges[k], out_edges[k+1] ):
@@ -3356,11 +3865,25 @@ cdef class Model(object):
 						log_sequence_probability )
 
 				if k < self.silent_start:
+					# If another state in the set of tied states has already
+					# been visited, we don't want to retrain.
+					if visited[k] == 1:
+						continue
+
+					# Mark that we've visited this state
+					visited[k] = 1
+
+					# Mark that we've visited all other states in this state
+					# group.
+					for l in xrange( tied_states[k], tied_states[k+1] ):
+						li = self.tied[l]
+						visited[li] = 1
+
 					# Now think about emission probabilities from this state
+					weights = numpy.zeros( n )
 
 					for i in xrange( n ):
 						# For each symbol that came out
-
 						# What's the weight of this symbol for that state?
 						# Probability that we emit index characters and then 
 						# transition to state l, and that from state l we  
@@ -3370,13 +3893,15 @@ cdef class Model(object):
 						# According to http://www1.icsi.berkeley.edu/Speech/
 						# docs/HTKBook/node7_mn.html, we really should divide by
 						# sequence probability.
-						weight = cexp(f[i+1, k] + b[i+1, k] - 
-							log_sequence_probability)
+						weights[i] = cexp( f[i+1, k] + b[i+1, k] - 
+							log_sequence_probability )
+						
+						for l in xrange( tied_states[k], tied_states[k+1] ):
+							li = self.tied[l]
+							weights[i] += cexp( f[i+1, li] + b[i+1, li] -
+								log_sequence_probability )
 
-						# Add this weight to the weight list for this state
-						emission_weights[k, characters_so_far+i] = weight
-
-			characters_so_far += n
+					self.states[k].distribution.summarize( sequence, weights )
 
 		# We now have expected_transitions taking into account all sequences.
 		# And a list of all emissions, and a weighting of each emission for each
@@ -3424,20 +3949,21 @@ cdef class Model(object):
 						cexp( self.in_transition_log_probabilities[l] ) *
 						edge_inertia + probability * ( 1 - edge_inertia ) )
 
-		# Define several helped variables.
-		cdef double tied_state_probability
-		cdef int [:] visited = numpy.zeros( self.silent_start,
-			dtype=numpy.int32 )
-		cdef int [:] tied_states = self.tied_state_count
-		cdef list symbols, weights
-
-		for k in xrange(self.silent_start):
+		visited = numpy.zeros( self.silent_start, dtype=numpy.int32 )
+		for k in xrange( self.silent_start ):
 			# If this distribution has already been trained because it is tied
 			# to an earlier state, don't bother retraining it as that would
 			# waste time.
 			if visited[k] == 1:
 				continue
+			
+			# Mark that we've visited this state
 			visited[k] = 1
+
+			# Mark that we've visited all states in this tied state group.
+			for l in xrange( tied_states[k], tied_states[k+1] ):
+				li = self.tied[l]
+				visited[li] = 1
 
 			# Re-estimate the emission distribution for every non-silent state.
 			# Take each emission weighted by the probability that we were in 
@@ -3445,38 +3971,12 @@ cdef class Model(object):
 			# sequence that the symbol was part of. Take into account tied
 			# states by only training that distribution one time, since many
 			# states are pointing to the same distribution object.
-			symbols = []
-			weights = []
-
-			for i in xrange( total_characters ):
-				# Start off by assuming the probability for this character is
-				# the probability in the emitted_symbols list.
-				tied_state_probability = emission_weights[k, i]
-
-				# Go through and see if this symbol was emitted in any of the
-				# other states, and indicate they have all been visited.
-				for l in xrange( tied_states[k], tied_states[k+1] ):
-					li = self.tied[l]
-					tied_state_probability += emission_weights[li, i]
-					visited[li] = 1
-
-				# If the symbol was emitted by any of the states, then add it
-				# to the list of symbols used to train the underlying
-				# distribution.
-				if tied_state_probability > emitted_probability_threshold:
-					symbols.append( emitted_symbols[i] )
-					weights.append( tied_state_probability )
-
-			# Now train this distribution on the symbols collected. If there
-			# are tied states, this will be done once per set of tied states
-			# in order to save time.
-			self.states[k].distribution.from_sample( symbols, 
-				weights=weights )
-
+			self.states[k].distribution.from_summaries( 
+				inertia=distribution_inertia )
 
 	cdef void _train_viterbi( self, numpy.ndarray sequences, 
 		double transition_pseudocount, int use_pseudocount, 
-		double edge_inertia ):
+		double edge_inertia, double distribution_inertia ):
 		"""
 		Performs a simple viterbi training algorithm. Each sequence is tagged
 		using the viterbi algorithm, and both emissions and transitions are
@@ -3501,11 +4001,12 @@ cdef class Model(object):
 			sequence_path_pairs.append( (sequence, sequence_path) )
 
 		self._train_labelled( sequence_path_pairs, 
-			transition_pseudocount, use_pseudocount, edge_inertia )
+			transition_pseudocount, use_pseudocount, edge_inertia, 
+			distribution_inertia )
 
 	cdef void _train_labelled( self, list sequences,
 		double transition_pseudocount, int use_pseudocount,
-		double edge_inertia ):
+		double edge_inertia, double distribution_inertia ):
 		"""
 		Perform training on a set of sequences where the state path is known,
 		thus, labelled. Pass in a list of tuples, where each tuple is of the
@@ -3513,17 +4014,11 @@ cdef class Model(object):
 		"""
 
 		cdef int i, j, m=len(self.states), n, a, b, k, l, li
-		cdef int total_characters=0
 		cdef numpy.ndarray sequence 
 		cdef list labels
 		cdef State label
-		cdef list symbols = [ [] for i in xrange( self.silent_start ) ]
+		cdef list symbols = [ [] for i in xrange(m) ]
 		cdef int [:] tied_states = self.tied_state_count
-
-		# Get the total number of characters emitted by going through each
-		# sequence and getting the length
-		for sequence, labels in sequences:
-			total_characters += len( sequence )
 
 		# Define matrices for the transitions between states, and the weight of
 		# each emission for each state for training later.
@@ -3558,6 +4053,7 @@ cdef class Model(object):
 				# state.
 				k = indices[label]
 				symbols[k].append( sequence[i] )
+
 				# Also add the symbol to the list of symbols emitted from any
 				# tied states to the current state.
 				for l in xrange( tied_states[k], tied_states[k+1] ):
@@ -3609,7 +4105,7 @@ cdef class Model(object):
 		cdef int [:] visited = numpy.zeros( self.silent_start,
 			dtype=numpy.int32 )
 
-		for k in xrange(self.silent_start):
+		for k in xrange( self.silent_start ):
 			# If this distribution has already been trained because it is tied
 			# to an earlier state, don't bother retraining it as that would
 			# waste time.
@@ -3627,4 +4123,5 @@ cdef class Model(object):
 			# Now train this distribution on the symbols collected. If there
 			# are tied states, this will be done once per set of tied states
 			# in order to save time.
-			self.states[k].distribution.from_sample( symbols[k] )
+			self.states[k].distribution.from_sample( symbols[k], 
+				inertia=distribution_inertia )
