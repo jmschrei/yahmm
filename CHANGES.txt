@@ -42,3 +42,10 @@ v1.0.0 6/26/2014 -- Significant changes have been made, which make some function
 (7) MultivariateDistribution is a new distribution type which allows you to specify distributions over an arbitrary number of independent distributions of any type. You specify it by passing in a list of distributions like the following: MultivariateDistribution( [ NormalDistribution( 5, 2 ), ExponentialDistribution( 10 ) ] ). All current methods work with it, but now all sequence items must be tuples of length equal to the number of distributions.
 
 (8) Previously, rows were normalized during the forward and backward algorithm. This caused huge slow downs for no gain, as the logsumexp function handled underflow. These have been removed. 
+
+v1.0.1a, 8/26/2014 --
+(1) Distribution inertia added for all distributions. This means that parameters for the distributions are updated to be inertia*prior_parameters + (1-inertia)*new_parameters. This can be triggered using `distribution_inertia` in the `Model.train` method.
+
+(2) Summary statistics implemented for Baum-Welch training. This involves summarizing one sequence at a time and storing the appropriate summary statistics to the distribution object using `Distribution.summarize( items, weights )`, and then updating the parameters using these summary statistics and an appropriate inertia with `Distribution.from_summarize( inertia=0.0 )`. This makes training on large numbers of sequences always faster, but training on small numbers of long sequences take slightly longer. 
+
+(3) Nosetests significantly expanded to include more tests. This includes a new file `test_training.py`, which has a large number of tests on the Viterbi and Baum-Welch training algorithms, with different parameters. This also includes expanded testing of each distribution, and each of the training functions for that sample.
