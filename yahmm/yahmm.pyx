@@ -14,6 +14,14 @@ import math, random, itertools as it, sys, bisect
 import networkx
 import scipy.stats, scipy.sparse, scipy.special
 
+if sys.version_info[0] > 2:
+	# Set up for Python 3
+	from functools import reduce
+	xrange = range
+	izip = zip
+else:
+	izip = it.izip
+
 import numpy
 cimport numpy
 
@@ -243,7 +251,7 @@ cdef class UniformDistribution( Distribution ):
 		
 		if weights is not None:
 			# Throw out items with weight 0
-			items = [item for (item, weight) in it.izip(items, weights) 
+			items = [item for (item, weight) in izip(items, weights) 
 				if weight > 0]
 		
 		if len(items) == 0:
@@ -267,7 +275,7 @@ cdef class UniformDistribution( Distribution ):
 
 		if weights is not None:
 			# Throw out items with weight 0
-			items = [ item for item, weight in it.izip( items, weights )
+			items = [ item for item, weight in izip( items, weights )
 				if weight > 0 ]
 
 		if len( items ) == 0:
@@ -564,7 +572,7 @@ cdef class LogNormalDistribution( Distribution ):
 		# 1 being to ignore new training data.
 		prior_mean, prior_std = self.parameters
 		self.parameters = [ prior_mean*inertia + mean*(1-inertia), 
-						    prior_std*inertia + std*(1-inertia) ]
+							prior_std*inertia + std*(1-inertia) ]
 
 	def summarize( self, items, weights=None ):
 		'''
@@ -620,7 +628,7 @@ cdef class LogNormalDistribution( Distribution ):
 		# of 0 being completely replacing the parameters, and an inertia of
 		# 1 being to ignore new training data.
 		self.parameters = [ prior_mean*inertia + mean*(1-inertia), 
-						    prior_std*inertia + std*(1-inertia) ]
+							prior_std*inertia + std*(1-inertia) ]
 		self.summaries = []
 
 cdef class ExtremeValueDistribution( Distribution ):
@@ -1166,7 +1174,7 @@ cdef class DiscreteDistribution(Distribution):
 
 		# Sum the weights seen for each character
 		characters = {}
-		for character, weight in it.izip( items, weights ):
+		for character, weight in izip( items, weights ):
 			try:
 				characters[character] += weight
 			except KeyError:
@@ -1199,7 +1207,7 @@ cdef class DiscreteDistribution(Distribution):
 			weights = numpy.asarray( weights )
 
 		characters = self.summaries[0]
-		for character, weight in it.izip( items, weights ):
+		for character, weight in izip( items, weights ):
 			try:
 				characters[character] += weight
 			except KeyError:
@@ -2073,8 +2081,8 @@ cdef class Model(object):
 		for state in self.graph.nodes():
 
 			# Perform log sum exp on the edges to see if they properly sum to 1
-			out_edges = round( numpy.sum( map( lambda x: numpy.e**x['weight'], 
-				self.graph.edge[state].values() ) ), 8 )
+			out_edges = round( sum( numpy.e**x['weight'] 
+				for x in self.graph.edge[state].values() ), 8 )
 
 			# The end state has no out edges, so will be 0
 			if out_edges != 1. and state != self.end:
@@ -2268,9 +2276,9 @@ cdef class Model(object):
 
 		# Take the cumulative sum so that we can associat
 		self.in_edge_count = numpy.cumsum(self.in_edge_count, 
-            dtype=numpy.int32)
+			dtype=numpy.int32)
 		self.out_edge_count = numpy.cumsum(self.out_edge_count, 
-            dtype=numpy.int32 )
+			dtype=numpy.int32 )
 
 		# Now we go through the edges again in order to both fill in the
 		# transition probability matrix, and also to store the indices sorted
@@ -3570,7 +3578,7 @@ cdef class Model(object):
 
 		# Build state objects for every state with the appropriate distribution
 		states = [ State( distribution, name=name ) for name, distribution in
-			it.izip( state_names, distributions) ]
+			izip( state_names, distributions) ]
 
 		n = len( states )
 
