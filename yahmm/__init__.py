@@ -10,20 +10,16 @@ import numpy as np
 import os
 import pyximport
 
-# Make our dependencies explicit so compiled Cython code won't segfault trying
-# to load them.
-import networkx, matplotlib, numpy
-
 # Adapted from Cython docs https://github.com/cython/cython/wiki/
 # InstallingOnWindows#mingw--numpy--pyximport-at-runtime
 if os.name == 'nt':
-    if 'CPATH' in os.environ:
+    if os.environ.has_key('CPATH'):
         os.environ['CPATH'] = os.environ['CPATH'] + np.get_include()
     else:
         os.environ['CPATH'] = np.get_include()
 
     # XXX: we're assuming that MinGW is installed in C:\MinGW (default)
-    if 'PATH' in os.environ:
+    if os.environ.has_key('PATH'):
         os.environ['PATH'] = os.environ['PATH'] + ';C:\MinGW\bin'
     else:
         os.environ['PATH'] = 'C:\MinGW\bin'
@@ -32,7 +28,7 @@ if os.name == 'nt':
     pyximport.install(setup_args=mingw_setup_args)
 
 elif os.name == 'posix':
-    if 'CFLAGS' in os.environ:
+    if os.environ.has_key('CFLAGS'):
         os.environ['CFLAGS'] = os.environ['CFLAGS'] + ' -I' + np.get_include()
     else:
         os.environ['CFLAGS'] = ' -I' + np.get_include()

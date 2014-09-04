@@ -100,9 +100,9 @@ def test_viterbi_train():
 	Test the model using various parameter settings for Viterbi training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='viterbi', 
@@ -117,9 +117,9 @@ def test_viterbi_train_no_pseudocount():
 	Test the model using various parameter settings for Viterbi training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='viterbi', 
@@ -134,9 +134,9 @@ def test_viterbi_train_w_pseudocount():
 	Test the model using various parameter settings for Viterbi training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='viterbi', 
@@ -151,9 +151,9 @@ def test_viterbi_train_w_pseudocount_priors():
 	Test the model using various parameter settings for Viterbi training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='viterbi', 
@@ -169,9 +169,9 @@ def test_viterbi_train_w_inertia():
 	Test the model using various parameter settings for Viterbi training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='viterbi', 
@@ -186,9 +186,9 @@ def test_viterbi_train_w_inertia2():
 	Test the model using various parameter settings for Viterbi training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='viterbi', 
@@ -203,9 +203,9 @@ def test_viterbi_train_w_pseudocount_inertia():
 	Test the model using various parameter settings for Viterbi training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='viterbi', 
@@ -221,9 +221,9 @@ def test_bw_train():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
@@ -239,9 +239,9 @@ def test_bw_train_no_pseudocount():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
@@ -257,9 +257,9 @@ def test_bw_train_w_pseudocount():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
@@ -275,9 +275,9 @@ def test_bw_train_w_pseudocount_priors():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
@@ -294,9 +294,9 @@ def test_bw_train_w_inertia():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
@@ -312,9 +312,9 @@ def test_bw_train_w_inertia2():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
@@ -330,9 +330,9 @@ def test_bw_train_w_pseudocount_inertia():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
@@ -349,9 +349,9 @@ def test_bw_train_w_frozen_distributions():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
@@ -367,9 +367,9 @@ def test_bw_train_w_frozen_edges():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
@@ -385,9 +385,9 @@ def test_bw_train_w_edge_a_distribution_inertia():
 	Test the model using various parameter settings for Baum-Welch training.
 	'''
 
-	seqs = [ list(x) for x in [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
+	seqs = map( list, [ 'ACT', 'ACT', 'ACC', 'ACTC', 'ACT', 'ACT', 'CCT', 
 		'CCC', 'AAT', 'CT', 'AT', 'CT', 'CT', 'CT', 'CT', 'CT', 'CT', 
-		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] ]
+		'ACT', 'ACT', 'CT', 'ACT', 'CT', 'CT', 'CT', 'CT' ] )
 
 	total_improvement = model.train( seqs, 
 									 algorithm='baum-welch', 
