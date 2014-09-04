@@ -12,7 +12,8 @@ import pyximport
 
 # Make our dependencies explicit so compiled Cython code won't segfault trying
 # to load them.
-import networkx, matplotlib, numpy
+import networkx, matplotlib.pyplot, numpy
+import scipy.stats, scipy.sparse, scipy.special
 
 # Adapted from Cython docs https://github.com/cython/cython/wiki/
 # InstallingOnWindows#mingw--numpy--pyximport-at-runtime
