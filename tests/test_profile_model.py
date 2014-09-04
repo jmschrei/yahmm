@@ -101,7 +101,7 @@ def test_same_length_viterbi():
 
 	scores = [ -0.5132449003570658, -11.048101241343396, -9.125519674022627, 
 		-5.0879558788604475 ]
-	sequences = [ list(x) for x in [ 'ACT', 'GGC', 'GAT', 'ACC' ] ]
+	sequences = map( list, [ 'ACT', 'GGC', 'GAT', 'ACC' ] )
 	
 	for seq, score in zip( sequences, scores ):
 		assert model.viterbi( seq )[0] == score, \
@@ -120,8 +120,8 @@ def test_variable_length_viterbi():
 	scores = [ -5.406181012423981, -10.88681993576597, -3.6244718790494277, 
 	-3.644880750680635, -10.674332964640293, -10.393824835172445, 
 	-8.67126440174503, -16.903451796110275, -16.451699654050792 ]
-	sequences = [ list(x) for x in ('A', 'GA', 'AC', 'AT', 'ATCC', 
-		'ACGTG', 'ATTT', 'TACCCTC', 'TGTCAACACT') ]
+	sequences = map( list, ('A', 'GA', 'AC', 'AT', 'ATCC', 
+		'ACGTG', 'ATTT', 'TACCCTC', 'TGTCAACACT') )
 
 	for seq, score in zip( sequences, scores ):
 		assert model.viterbi( seq )[0] == score, \
@@ -135,7 +135,7 @@ def test_log_probability():
 	'''
 
 	scores = [ -5.3931, -0.5052, -11.8478, -14.3482 ]
-	sequences = [ list(x) for x in ( 'A', 'ACT', 'GGCA', 'TACCTGT' ) ]
+	sequences = map( list, ( 'A', 'ACT', 'GGCA', 'TACCTGT' ) )
 
 	for seq, score in zip( sequences, scores ):
 		print( round( model.log_probability( seq ), 4 ) )
@@ -152,7 +152,7 @@ def test_posterior_transitions():
 	a_scores = [ 0.0, 0.0021, 0.2017, 1.5105 ]
 	b_scores = [ 0.013, 0.0035, 0.817, 0.477 ]
 	t_scores = [ 4.013, 4.0083, 6.457, 8.9812 ]
-	sequences = [ list(x) for x in ( 'A', 'ACT', 'GGCA', 'TACCTGT' ) ]
+	sequences = map( list, ( 'A', 'ACT', 'GGCA', 'TACCTGT' ) )
 
 	indices = { state.name: i for i, state in enumerate( model.states ) }
 	i, j = indices['I2'], indices['D1']
@@ -177,7 +177,7 @@ def test_posterior_emissions():
 	a_scores = [ 0.987, 0.9965, 0.183, 0.523 ]
 	b_scores = [ 0.0, 0.9977, 0.7364, 0.6318 ]
 	c_scores = [ 0.0, 0.9975, 0.6237, 0.8641 ]
-	sequences = [ list(x) for x in ( 'A', 'ACT', 'GGCA', 'TACCTGT' ) ]
+	sequences = map( list, ( 'A', 'ACT', 'GGCA', 'TACCTGT' ) )
 
 	indices = { state.name: i for i, state in enumerate( model.states ) }
 	i, j, k = indices['M1'], indices['M2'], indices['M3']
