@@ -64,6 +64,15 @@ def test_normal():
 	assert round( d.parameters[0], 4 ) == 95.3429
 	assert round( d.parameters[1], 4 ) == 20.8276
 
+	d.freeze()
+	d.from_sample( [ 0, 1, 1, 2, 3, 2, 1, 2, 2 ] )
+	assert round( d.parameters[0], 4 ) == 95.3429
+	assert round( d.parameters[1], 4 ) == 20.8276
+
+	d.thaw()
+	d.from_sample( [ 5, 4, 5, 4, 6, 5, 6, 5, 4, 6, 5, 4 ] )
+	assert d.parameters == [ 4.916666666666667, 0.75920279826202286 ]
+
 @with_setup( setup, teardown )
 def test_uniform():
 	'''
@@ -114,6 +123,14 @@ def test_uniform():
 	assert d.parameters[0] == 0
 	assert d.parameters[1] == 200
 
+	d.freeze()
+	d.from_sample( [ 0, 1, 6, 7, 8, 3, 4, 5, 2 ] )
+	assert d.parameters == [ 0, 200 ]
+
+	d.thaw()
+	d.from_sample( [ 0, 1, 6, 7, 8, 3, 4, 5, 2 ] )
+	assert d.parameters == [ 0, 8 ]
+
 @with_setup( setup, teardown )
 def test_discrete():
 	'''
@@ -162,6 +179,10 @@ def test_discrete():
 	d.summarize( list( "ABAB" ) )
 	d.summarize( list( "BABABABABABABABABA" ) )
 	d.from_summaries( inertia=0.5 )
+	assert d.parameters[0] == { 'A': 0.25, 'B': 0.75 }
+
+	d.freeze()
+	d.from_sample( list('ABAABBAAAAAAAAAAAAAAAAAA') )
 	assert d.parameters[0] == { 'A': 0.25, 'B': 0.75 }
 
 @with_setup( setup, teardown )
@@ -284,6 +305,11 @@ def test_gaussian_kernel():
 	assert round( d.log_probability( 110 ), 4 ) == -2.9368
 	assert round( d.log_probability( 0 ), 4 ) == -5.1262
 
+	d.freeze()
+	d.from_sample( [ 1, 3, 5, 4, 6, 7, 3, 4, 2 ] )
+	assert round( d.log_probability( 110 ), 4 ) == -2.9368
+	assert round( d.log_probability( 0 ), 4 ) == -5.1262
+
 @with_setup( setup, teardown )
 def test_triangular_kernel():
 	'''
@@ -301,6 +327,11 @@ def test_triangular_kernel():
 	d.summarize( [2] )
 	d.from_summaries()
 	assert round( d.log_probability( 6.5 ), 4 ) == -2.4849
+
+	d.freeze()
+	d.from_sample( [ 1, 4, 6, 7, 3, 5, 7, 8, 3, 3, 4 ] )
+	assert round( d.log_probability( 6.5 ), 4 ) == -2.4849
+
 
 
 @with_setup( setup, teardown )
@@ -396,6 +427,15 @@ def test_multivariate():
 	d.summarize([ ( 5, -5 ), ( 7, 0 ) ])
 	d.summarize([ ( 3, 0 ), ( 4, 0 ), ( 5, 0 ), ( 2, 20 ) ])
 	d.from_summaries( inertia=0.5 )
+
+	assert round( d.parameters[0][0].parameters[0], 4 ) == 4.3889
+	assert round( d.parameters[0][0].parameters[1], 4 ) == 1.9655 
+
+	assert d.parameters[0][1].parameters[0] == -2.5
+	assert d.parameters[0][1].parameters[1] == 15
+
+	d.freeze()
+	d.from_sample( [ ( 1, 7 ), ( 7, 2 ), ( 2, 4), ( 2, 4 ), ( 1, 4 ) ] )
 
 	assert round( d.parameters[0][0].parameters[0], 4 ) == 4.3889
 	assert round( d.parameters[0][0].parameters[1], 4 ) == 1.9655 

@@ -181,6 +181,8 @@ cdef class Distribution(object):
 		specified, it holds a sequence of value to weight each item by.
 		"""
 		
+		if self.frozen == True:
+			return
 		raise NotImplementedError
 
 	def summarize( self, items, weights=None ):
@@ -665,7 +667,7 @@ cdef class ExtremeValueDistribution( Distribution ):
 	Represent a generalized extreme value distribution over floats.
 	"""
 
-	def __init__( self, mu, sigma, epsilon, frozen=False ):
+	def __init__( self, mu, sigma, epsilon, frozen=True ):
 		"""
 		Make a new extreme value distribution, where mu is the location
 		parameter, sigma is the scale parameter, and epsilon is the shape
@@ -1304,7 +1306,7 @@ cdef class LambdaDistribution(Distribution):
 	untransformed probability.
 	"""
 	
-	def __init__(self, lambda_funct ):
+	def __init__(self, lambda_funct, frozen=True ):
 		"""
 		Takes in a lambda function and stores it. This function should return
 		the log probability of seeing a certain input.
@@ -1313,6 +1315,7 @@ cdef class LambdaDistribution(Distribution):
 		# Store the parameters
 		self.parameters = [lambda_funct]
 		self.name = "LambdaDistribution"
+		self.frozen = frozen
 		
 	def log_probability(self, symbol):
 		"""
