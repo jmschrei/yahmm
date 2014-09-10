@@ -102,17 +102,11 @@ cdef class Distribution(object):
 	written by write().
 	"""
 	
-	# Instance stuff
-	
-	"""
-	This is the name that should be used for serializing this distribution. May
-	not contain newlines or spaces.
-	"""
-
 	cdef public str name
 	cdef public list parameters, summaries
+	cdef public bint frozen
 
-	def __init__(self):
+	def __init__( self ):
 		"""
 		Make a new Distribution with the given parameters. All parameters must 
 		be floats.
@@ -124,6 +118,7 @@ cdef class Distribution(object):
 		"""
 
 		self.name = "Distribution"
+		self.frozen = False
 		self.parameters = []
 		self.summaries = []
 
@@ -148,6 +143,22 @@ cdef class Distribution(object):
 		"""
 
 		return self.__class__( *self.parameters ) 
+
+	def freeze( self ):
+		"""
+		Freeze the distribution, preventing training from changing any of the
+		parameters of the distribution.
+		"""
+
+		self.frozen = True
+
+	def thaw( self ):
+		"""
+		Thaw the distribution, allowing training to change the parameters of
+		the distribution again.
+		"""
+
+		self.frozen = False 
 
 	def log_probability( self, symbol ):
 		"""
@@ -202,6 +213,10 @@ cdef class Distribution(object):
 		previously. 
 		"""
 
+		# If the distribution is frozen, don't bother with any calculation
+		if self.frozen == True:
+			return
+
 		self.from_sample( *self.summaries )
 		self.summaries = []
 
@@ -210,7 +225,7 @@ cdef class UniformDistribution( Distribution ):
 	A uniform distribution between two values.
 	"""
 
-	def __init__( self, start, end ):
+	def __init__( self, start, end, frozen=False ):
 		"""
 		Make a new Uniform distribution over floats between start and end, 
 		inclusive. Start and end must not be equal.
@@ -220,6 +235,7 @@ cdef class UniformDistribution( Distribution ):
 		self.parameters = [start, end]
 		self.summaries = []
 		self.name = "UniformDistribution"
+		self.frozen = frozen
 		
 	def log_probability( self, symbol ):
 		"""
@@ -235,7 +251,7 @@ cdef class UniformDistribution( Distribution ):
 			return _log( 1.0 / ( b - a ) )
 		return NEGINF
 			
-	def sample(self):
+	def sample( self ):
 		"""
 		Sample from this uniform distribution and return the value sampled.
 		"""
@@ -249,6 +265,10 @@ cdef class UniformDistribution( Distribution ):
 		specified, it holds a sequence of value to weight each item by.
 		"""
 		
+		# If the distribution is frozen, don't bother with any calculation
+		if self.frozen == True:
+			return
+
 		if weights is not None:
 			# Throw out items with weight 0
 			items = [item for (item, weight) in izip(items, weights) 
@@ -294,6 +314,10 @@ cdef class UniformDistribution( Distribution ):
 		of a sample, and determine the global minimum and maximum.
 		'''
 
+		# If the distribution is frozen, don't bother with any calculation
+		if self.frozen == True:
+			return
+
 		summaries = numpy.asarray( self.summaries )
 
 		# Load the prior parameters
@@ -311,7 +335,7 @@ cdef class NormalDistribution( Distribution ):
 	A normal distribution based on a mean and standard deviation.
 	"""
 
-	def __init__( self, mean, std ):
+	def __init__( self, mean, std, frozen=False ):
 		"""
 		Make a new Normal distribution with the given mean mean and standard 
 		deviation std.
@@ -321,6 +345,7 @@ cdef class NormalDistribution( Distribution ):
 		self.parameters = [mean, std]
 		self.summaries = []
 		self.name = "NormalDistribution"
+		self.frozen = frozen
 
 	def log_probability( self, symbol, epsilon=1E-4 ):
 		"""
@@ -363,8 +388,9 @@ cdef class NormalDistribution( Distribution ):
 		
 		min_std specifieds a lower limit on the learned standard deviation.
 		"""
-		
-		if len(items) == 0:
+
+		# If the distribution is frozen, don't bother with any calculation
+		if len(items) == 0 or self.frozen == True:
 			# No sample, so just ignore it and keep our old parameters.
 			return
 
@@ -448,8 +474,8 @@ cdef class NormalDistribution( Distribution ):
 		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
 		'''
 
-		# If no summaries stored, don't do anything.
-		if len( self.summaries ) == 0:
+		# If no summaries stored or the summary is frozen, don't do anything.
+		if len( self.summaries ) == 0 or self.frozen == True:
 			return
 
 		summaries = numpy.asarray( self.summaries )
@@ -479,7 +505,7 @@ cdef class LogNormalDistribution( Distribution ):
 	Represents a lognormal distribution over non-negative floats.
 	"""
 
-	def __init__( self, mu, sigma ):
+	def __init__( self, mu, sigma, frozen=False ):
 		"""
 		Make a new lognormal distribution. The parameters are the mu and sigma
 		of the normal distribution, which is the the exponential of the log
@@ -488,6 +514,7 @@ cdef class LogNormalDistribution( Distribution ):
 		self.parameters = [ mu, sigma ]
 		self.summaries = []
 		self.name = "LogNormalDistribution"
+		self.frozen = frozen
 
 	def log_probability( self, symbol ):
 		"""
@@ -520,7 +547,8 @@ cdef class LogNormalDistribution( Distribution ):
 		weights is specified, hold a sequence of values to weight each item by.
 		"""
 
-		if len(items) == 0:
+		# If the distribution is frozen, don't bother with any calculation
+		if len(items) == 0 or self.frozen == True:
 			# No sample, so just ignore it and keep our old parameters.
 			return
 
@@ -605,8 +633,9 @@ cdef class LogNormalDistribution( Distribution ):
 		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
 		'''
 
-		# If no summaries are provided, don't do anything.
-		if len( self.summaries ) == 0:
+		# If no summaries are provided or the distribution is frozen, 
+		# don't do anything.
+		if len( self.summaries ) == 0 or self.frozen == True:
 			return
 
 		summaries = numpy.asarray( self.summaries )
@@ -636,7 +665,7 @@ cdef class ExtremeValueDistribution( Distribution ):
 	Represent a generalized extreme value distribution over floats.
 	"""
 
-	def __init__( self, mu, sigma, epsilon ):
+	def __init__( self, mu, sigma, epsilon, frozen=False ):
 		"""
 		Make a new extreme value distribution, where mu is the location
 		parameter, sigma is the scale parameter, and epsilon is the shape
@@ -645,6 +674,7 @@ cdef class ExtremeValueDistribution( Distribution ):
 
 		self.parameters = [ float(mu), float(sigma), float(epsilon) ]
 		self.name = "ExtremeValueDistribution"
+		self.frozen = frozen
 
 	def log_probability( self, symbol ):
 		"""
@@ -671,7 +701,7 @@ cdef class ExponentialDistribution( Distribution ):
 	Represents an exponential distribution on non-negative floats.
 	"""
 	
-	def __init__( self, rate ):
+	def __init__( self, rate, frozen=False ):
 		"""
 		Make a new inverse gamma distribution. The parameter is called "rate" 
 		because lambda is taken.
@@ -680,7 +710,8 @@ cdef class ExponentialDistribution( Distribution ):
 		self.parameters = [rate]
 		self.summaries = []
 		self.name = "ExponentialDistribution"
-		
+		self.frozen = frozen
+
 	def log_probability( self, symbol ):
 		"""
 		What's the probability of the given float under this distribution?
@@ -688,7 +719,7 @@ cdef class ExponentialDistribution( Distribution ):
 		
 		return _log(self.parameters[0]) - self.parameters[0] * symbol
 		
-	def sample(self):
+	def sample( self ):
 		"""
 		Sample from this exponential distribution and return the value
 		sampled.
@@ -703,7 +734,8 @@ cdef class ExponentialDistribution( Distribution ):
 		specified, it holds a sequence of value to weight each item by.
 		"""
 		
-		if len(items) == 0:
+		# If the distribution is frozen, don't bother with any calculation
+		if len(items) == 0 or self.frozen == True:
 			# No sample, so just ignore it and keep our old parameters.
 			return
 		
@@ -760,8 +792,8 @@ cdef class ExponentialDistribution( Distribution ):
 		http://math.stackexchange.com/questions/453113/how-to-merge-two-gaussians
 		'''
 
-		# If no summaries, do nothing.
-		if len( self.summaries ) == 0:
+		# If no summaries or the distribution is frozen, do nothing.
+		if len( self.summaries ) == 0 or self.frozen == True:
 			return
 
 		summaries = numpy.asarray( self.summaries )
@@ -788,7 +820,7 @@ cdef class GammaDistribution( Distribution ):
 	cobbled together a solution here from less-reputable sources.
 	"""
 	
-	def __init__( self, alpha, beta ):
+	def __init__( self, alpha, beta, frozen=False ):
 		"""
 		Make a new gamma distribution. Alpha is the shape parameter and beta is 
 		the rate parameter.
@@ -797,6 +829,7 @@ cdef class GammaDistribution( Distribution ):
 		self.parameters = [alpha, beta]
 		self.summaries = []
 		self.name = "GammaDistribution"
+		self.frozen = frozen
 		
 	def log_probability( self, symbol ):
 		"""
@@ -809,7 +842,7 @@ cdef class GammaDistribution( Distribution ):
 			_log(symbol) * (self.parameters[0] - 1) - 
 			self.parameters[1] * symbol)
 		
-	def sample(self):
+	def sample( self ):
 		"""
 		Sample from this gamma distribution and return the value sampled.
 		"""
@@ -842,7 +875,8 @@ cdef class GammaDistribution( Distribution ):
 		http://www.experts-exchange.com/Other/Math_Science/Q_23943764.html
 		"""
 		
-		if len(items) == 0:
+		# If the distribution is frozen, don't bother with any calculation
+		if len(items) == 0 or self.frozen == True:
 			# No sample, so just ignore it and keep our old parameters.
 			return
 
@@ -979,6 +1013,10 @@ cdef class GammaDistribution( Distribution ):
 		http://www.experts-exchange.com/Other/Math_Science/Q_23943764.html
 		'''
 
+		# If the distribution is frozen, don't bother with any calculation
+		if len(self.summaries) == 0 or self.frozen == True:
+			return
+
 		# First, do Newton-Raphson for shape parameter.
 		
 		# Calculate the sufficient statistic s, which is the log of the average 
@@ -1059,7 +1097,7 @@ cdef class InverseGammaDistribution( GammaDistribution ):
 	GammaDistribution.
 	"""
 	
-	def __init__( self, alpha, beta ):
+	def __init__( self, alpha, beta, frozen=False ):
 		"""
 		Make a new inverse gamma distribution. Alpha is the shape parameter and 
 		beta is the scale parameter.
@@ -1068,6 +1106,7 @@ cdef class InverseGammaDistribution( GammaDistribution ):
 		self.parameters = [alpha, beta]
 		self.summaries = []
 		self.name = "InverseGammaDistribution"
+		self.frozen = frozen
 		
 	def log_probability( self, symbol ):
 		"""
@@ -1077,7 +1116,7 @@ cdef class InverseGammaDistribution( GammaDistribution ):
 		return super(InverseGammaDistribution, self).log_probability(
 			1.0 / symbol)
 			
-	def sample(self):
+	def sample( self ):
 		"""
 		Sample from this inverse gamma distribution and return the value
 		sampled.
@@ -1120,7 +1159,7 @@ cdef class DiscreteDistribution(Distribution):
 	assuming that these probabilities will sum to 1.0. 
 	"""
 	
-	def __init__(self, characters ):
+	def __init__(self, characters, frozen=False ):
 		"""
 		Make a new discrete distribution with a dictionary of discrete
 		characters and their probabilities, checking to see that these
@@ -1132,6 +1171,7 @@ cdef class DiscreteDistribution(Distribution):
 		self.parameters = [ characters ]
 		self.summaries = [ {}, 0 ]
 		self.name = "DiscreteDistribution"
+		self.frozen = frozen
 
 
 	def log_probability(self, symbol ):
@@ -1144,7 +1184,7 @@ cdef class DiscreteDistribution(Distribution):
 
 		return log( self.parameters[0].get( symbol, 0 ) )
 			
-	def sample(self):
+	def sample( self ):
 		"""
 		Sample randomly from the discrete distribution, returning the character
 		which was randomly generated.
@@ -1163,6 +1203,10 @@ cdef class DiscreteDistribution(Distribution):
 		each sample is weighted equally. If weights are provided, they are
 		normalized to sum to 1 and used.
 		"""
+
+		# If the distribution is frozen, don't bother with any calculation
+		if len( items ) == 0 or self.frozen == True:
+			return
 
 		n = len( items )
 
@@ -1221,7 +1265,8 @@ cdef class DiscreteDistribution(Distribution):
 		Takes in a series of summaries and merge them.
 		'''
 
-		if len( self.summaries ) == 0:
+		# If the distribution is frozen, don't bother with any calculation
+		if len( self.summaries ) == 0 or self.frozen == True:
 			return
 
 		# Unpack the variables
@@ -1283,7 +1328,7 @@ cdef class GaussianKernelDensity( Distribution ):
 	the sum of the Gaussian distance of the new point from every other point.
 	"""
 
-	def __init__( self, points, bandwidth=1, weights=None ):
+	def __init__( self, points, bandwidth=1, weights=None, frozen=False ):
 		"""
 		Take in points, bandwidth, and appropriate weights. If no weights
 		are provided, a uniform weight of 1/n is provided to each point.
@@ -1301,6 +1346,7 @@ cdef class GaussianKernelDensity( Distribution ):
 		self.parameters = [ points, bandwidth, weights ]
 		self.summaries = []
 		self.name = "GaussianKernelDensity"
+		self.frozen = frozen
 
 	def log_probability( self, symbol ):
 		"""
@@ -1350,6 +1396,10 @@ cdef class GaussianKernelDensity( Distribution ):
 		Replace the points, allowing for inertia if specified.
 		"""
 
+		# If the distribution is frozen, don't bother with any calculation
+		if self.frozen == True:
+			return
+
 		points = numpy.asarray( points )
 		n = len(points)
 
@@ -1378,7 +1428,7 @@ cdef class UniformKernelDensity( Distribution ):
 	the sum of the Gaussian distances of the new point from every other point.
 	"""
 
-	def __init__( self, points, bandwidth=1, weights=None ):
+	def __init__( self, points, bandwidth=1, weights=None, frozen=False ):
 		"""
 		Take in points, bandwidth, and appropriate weights. If no weights
 		are provided, a uniform weight of 1/n is provided to each point.
@@ -1395,6 +1445,7 @@ cdef class UniformKernelDensity( Distribution ):
 		self.parameters = [ points, bandwidth, weights ]
 		self.summaries = []
 		self.name = "UniformKernelDensity"
+		self.frozen = frozen
 
 	def log_probability( self, symbol ):
 		"""
@@ -1448,6 +1499,10 @@ cdef class UniformKernelDensity( Distribution ):
 		Replace the points, allowing for inertia if specified.
 		"""
 
+		# If the distribution is frozen, don't bother with any calculation
+		if self.frozen == True:
+			return
+
 		points = numpy.asarray( points )
 		n = len(points)
 
@@ -1476,7 +1531,7 @@ cdef class TriangleKernelDensity( Distribution ):
 	the sum of the Gaussian distances of the new point from every other point.
 	"""
 
-	def __init__( self, points, bandwidth=1, weights=None ):
+	def __init__( self, points, bandwidth=1, weights=None, frozen=False ):
 		"""
 		Take in points, bandwidth, and appropriate weights. If no weights
 		are provided, a uniform weight of 1/n is provided to each point.
@@ -1493,6 +1548,7 @@ cdef class TriangleKernelDensity( Distribution ):
 		self.parameters = [ points, bandwidth, weights ]
 		self.summaries = []
 		self.name = "TriangleKernelDensity"
+		self.frozen = frozen
 
 	def log_probability( self, symbol ):
 		"""
@@ -1544,6 +1600,10 @@ cdef class TriangleKernelDensity( Distribution ):
 		Replace the points, allowing for inertia if specified.
 		"""
 
+		# If the distribution is frozen, don't bother with any calculation
+		if self.frozen == True:
+			return
+
 		points = numpy.asarray( points )
 		n = len(points)
 
@@ -1572,7 +1632,7 @@ cdef class MixtureDistribution( Distribution ):
 	distributions. Can also specify weights for the distributions.
 	"""
 
-	def __init__( self, distributions, weights=None ):
+	def __init__( self, distributions, weights=None, frozen=False ):
 		"""
 		Take in the distributions and appropriate weights. If no weights
 		are provided, a uniform weight of 1/n is provided to each point.
@@ -1586,6 +1646,7 @@ cdef class MixtureDistribution( Distribution ):
 
 		self.parameters = [ distributions, weights ]
 		self.name = "MixtureDistribution"
+		self.frozen = frozen
 
 	def __str__( self ):
 		"""
@@ -1644,7 +1705,7 @@ cdef class MultivariateDistribution( Distribution ):
 	s1.log_probability( (5, 2 ) )
 	"""
 
-	def __init__( self, distributions, weights=None ):
+	def __init__( self, distributions, weights=None, frozen=False ):
 		"""
 		Take in the distributions and appropriate weights. If no weights
 		are provided, a uniform weight of 1/n is provided to each point.
@@ -1658,6 +1719,7 @@ cdef class MultivariateDistribution( Distribution ):
 
 		self.parameters = [ distributions, weights ]
 		self.name = "MultivariateDistribution"
+		self.frozen = frozen
 
 	def __str__( self ):
 		"""
@@ -1692,6 +1754,10 @@ cdef class MultivariateDistribution( Distribution ):
 		independently of each other. 
 		"""
 
+		# If the distribution is frozen, don't bother with any calculation
+		if self.frozen == True:
+			return
+
 		items = numpy.asarray( items )
 
 		for i, d in enumerate( self.parameters[0] ):
@@ -1714,6 +1780,10 @@ cdef class MultivariateDistribution( Distribution ):
 		Use the collected summary statistics in order to update the
 		distributions.
 		"""
+
+		# If the distribution is frozen, don't bother with any calculation
+		if self.frozen == True:
+			return
 
 		for d in self.parameters[0]:
 			d.from_summaries( inertia=inertia )
@@ -1993,7 +2063,26 @@ cdef class Model(object):
 		
 		networkx.draw(self.graph, **kwargs)
 		pyplot.show()
-		   
+
+	def freeze_distributions( self ):
+		"""
+		Freeze all the distributions in model. This means that upon training,
+		only edges will be updated. The parameters of distributions will not
+		be affected.
+		"""
+
+		for state in self.states:
+			state.distribution.freeze()
+
+	def thaw_distributions( self ):
+		"""
+		Thaw all distributions in the model. This means that upon training,
+		distributions will be updated again.
+		"""
+
+		for state in self.states:
+			state.distribution.thaw()
+
 	def bake( self, verbose=False, merge="all" ): 
 		"""
 		Finalize the topology of the model, and assign a numerical index to
