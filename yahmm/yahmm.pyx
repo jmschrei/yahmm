@@ -2050,12 +2050,6 @@ cdef class Model(object):
 		# model converge to that scheme given no observations. 
 		pseudocounts = pseudocounts or probabilities
 
-		if group == None or isinstance( group, str ):
-			# Calculate the number of edges based on the length of any list
-			# passed in.
-			n = len(a) if isinstance( a, list ) else len(b)
-			group = [ group for i in xrange( n ) ]  
-
 		# Allow addition of many transitions from many states
 		if isinstance( a, list ) and isinstance( b, list ):
 			# Set up an iterator across all edges
