@@ -2022,7 +2022,7 @@ cdef class Model(object):
 
 		# Add the transition
 		self.graph.add_edge(a, b, weight=log(probability), 
-			pseudocount=pseudocount, group=group )
+			pseudocount=pseudocount )
 
 	def add_transitions( self, a, b, probabilities=None, pseudocounts=None ):
 		"""
