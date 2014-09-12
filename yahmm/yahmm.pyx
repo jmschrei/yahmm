@@ -1909,6 +1909,9 @@ cdef class Model(object):
 	cdef double [:] state_weights
 	cdef int [:] tied_state_count
 	cdef int [:] tied
+	cdef int [:] tied_edge_group_size
+	cdef int [:] tied_edges_starts
+	cdef int [:] tied_edges_ends
 	cdef int finite
 
 	def __init__(self, name=None, start=None, end=None):
@@ -2005,7 +2008,7 @@ cdef class Model(object):
 		for state in states:
 			self.add_state( state )
 		
-	def add_transition( self, a, b, probability, pseudocount=None ):
+	def add_transition( self, a, b, probability, pseudocount=None, group=None ):
 		"""
 		Add a transition from state a to state b with the given (non-log)
 		probability. Both states must be in the HMM already. self.start and
@@ -2024,7 +2027,8 @@ cdef class Model(object):
 		self.graph.add_edge(a, b, weight=log(probability), 
 			pseudocount=pseudocount )
 
-	def add_transitions( self, a, b, probabilities=None, pseudocounts=None ):
+	def add_transitions( self, a, b, probabilities=None, pseudocounts=None,
+		group=None ):
 		"""
 		Add many transitions at the same time, in one of two forms. 
 
@@ -2074,7 +2078,7 @@ cdef class Model(object):
 			for end, probability, pseudocount in edges:
 				self.add_transition( a, end, probability, pseudocount )
 
-	def add_model(self, other):
+	def add_model( self, other ):
 		"""
 		Given another Model, add that model's contents to us. Its start and end
 		states become silent states in our model.
@@ -2103,7 +2107,7 @@ cdef class Model(object):
 		# Move the end to other.end
 		self.end = other.end
 
-	def draw(self, **kwargs):
+	def draw( self, **kwargs ):
 		"""
 		Draw this model's graph using NetworkX and matplotlib. Blocks until the
 		window displaying the graph is closed.
@@ -2271,10 +2275,12 @@ cdef class Model(object):
 								# Remove the edge going to that node
 								self.graph.remove_edge( x, y )
 
+								pseudo = max( e['pseudocount'], d['pseudocount'] )
+								group = e['group'] if e['group'] == d['group'] else None
 								# Add a new edge going to the new node
 								self.graph.add_edge( x, b, weight=d['weight'],
-									pseudocount=max( 
-										e['pseudocount'], d['pseudocount'] ) )
+									pseudocount=pseudo,
+									group=group )
 
 								# Log the event
 								if verbose:
@@ -2416,11 +2422,15 @@ cdef class Model(object):
 		else:
 			self.finite = 1
 
-		# Take the cumulative sum so that we can associat
+		# Take the cumulative sum so that we can associate array indices with
+		# in or out transitions
 		self.in_edge_count = numpy.cumsum(self.in_edge_count, 
 			dtype=numpy.int32)
 		self.out_edge_count = numpy.cumsum(self.out_edge_count, 
 			dtype=numpy.int32 )
+
+		# We need to store the edge groups as name : set pairs.
+		edge_groups = {}
 
 		# Now we go through the edges again in order to both fill in the
 		# transition probability matrix, and also to store the indices sorted
@@ -2455,6 +2465,44 @@ cdef class Model(object):
 			self.out_transition_log_probabilities[ start ] = data['weight']
 			self.out_transition_pseudocounts[ start ] = data['pseudocount']
 			self.out_transitions[ start ] = indices[b]  
+
+			# If this edge belongs to a group, we need to add it to the
+			# dictionary. We only care about forward representations of
+			# the edges. 
+			group = data['group']
+			if group != None:
+				if group in edge_groups:
+					edge_groups[ group ].append( ( indices[a], indices[b] ) )
+				else:
+					edge_groups[ group ] = [ ( indices[a], indices[b] ) ]
+
+		# We will organize the tied edges using three arrays. The first will be
+		# the cumulative number of members in each group, to slice the later
+		# arrays in the same manner as the transition arrays. The second will
+		# be the index of the state the edge starts in. The third will be the
+		# index of the state the edge ends in. This way, iterating across the
+		# second and third lists in the slices indicated by the first list will
+		# give all the edges in a group.
+		total_grouped_edges = sum( map( len, edge_groups.values() ) )
+
+		self.tied_edge_group_size = numpy.zeros( len( edge_groups.keys() )+1,
+			dtype=numpy.int32 )
+		self.tied_edges_starts = numpy.zeros( total_grouped_edges,
+			dtype=numpy.int32 )
+		self.tied_edges_ends = numpy.zeros( total_grouped_edges,
+			dtype=numpy.int32 )
+
+		# Iterate across all the grouped edges and bin them appropriately.
+		for i, (name, edges) in enumerate( edge_groups.items() ):
+			# Store the cumulative number of edges so far, which requires
+			# adding the current number of edges (m) to the previous
+			# number of edges (n)
+			n = self.tied_edge_group_size[i]
+			self.tied_edge_group_size[i+1] = n + len(edges)
+
+			for j, (start, end) in enumerate( edges ):
+				self.tied_edges_starts[n+j] = start
+				self.tied_edges_ends[n+j] = end
 
 		# This holds the index of the start state
 		try:
@@ -4062,6 +4110,26 @@ cdef class Model(object):
 		# Only modifies transitions for states a transition was observed from.
 		cdef double [:] norm = numpy.zeros( m )
 		cdef double probability
+
+		cdef int [:] tied_edges = self.tied_edge_group_size
+		cdef double tied_edge_probability 
+		# Go through the tied state groups and add transitions from each member
+		# in the group to the other members of the group.
+		# For each group defined.
+		for k in xrange( len( tied_edges )-1 ):
+			tied_edge_probability = 0.
+
+			# For edge in this group, get the sum of the edges
+			for l in xrange( tied_edges[k], tied_edges[k+1] ):
+				start = self.tied_edges_starts[l]
+				end = self.tied_edges_ends[l]
+				tied_edge_probability += expected_transitions[start, end]
+
+			# Update each entry
+			for l in xrange( tied_edges[k], tied_edges[k+1] ):
+				start = self.tied_edges_starts[l]
+				end = self.tied_edges_ends[l]
+				expected_transitions[start, end] = tied_edge_probability
 
 		# Calculate the regularizing norm for each node
 		for k in xrange( m ):
