@@ -2025,10 +2025,10 @@ cdef class Model(object):
 
 		# Add the transition
 		self.graph.add_edge(a, b, weight=log(probability), 
-			pseudocount=pseudocount )
+			pseudocount=pseudocount, group=group )
 
 	def add_transitions( self, a, b, probabilities=None, pseudocounts=None,
-		group=None ):
+		groups=None ):
 		"""
 		Add many transitions at the same time, in one of two forms. 
 
@@ -2054,29 +2054,33 @@ cdef class Model(object):
 		# model converge to that scheme given no observations. 
 		pseudocounts = pseudocounts or probabilities
 
+		n = len(a) if isinstance( a, list ) else len(b)
+		if groups is None or isinstance( groups, str ):
+			groups = [ groups ] * n
+
 		# Allow addition of many transitions from many states
 		if isinstance( a, list ) and isinstance( b, list ):
 			# Set up an iterator across all edges
-			edges = izip( a, b, probabilities, pseudocounts )
+			edges = izip( a, b, probabilities, pseudocounts, groups )
 			
-			for start, end, probability, pseudocount in edges:
-				self.add_transition( start, end, probability, pseudocount )
+			for start, end, probability, pseudocount, group in edges:
+				self.add_transition( start, end, probability, pseudocount, group )
 
 		# Allow for multiple transitions to a specific state 
 		elif isinstance( a, list ) and isinstance( b, State ):
 			# Set up an iterator across all edges to b
-			edges = izip( a, probabilities, pseudocounts )
+			edges = izip( a, probabilities, pseudocounts, groups )
 
-			for start, probability, pseudocount in edges:
-				self.add_transition( start, b, probability, pseudocount )
+			for start, probability, pseudocount, group in edges:
+				self.add_transition( start, b, probability, pseudocount, group )
 
 		# Allow for multiple transitions from a specific state
 		elif isinstance( a, State ) and isinstance( b, list ):
 			# Set up an iterator across all edges from a
-			edges = izip( b, probabilities, pseudocounts )
+			edges = izip( b, probabilities, pseudocounts, groups )
 
-			for end, probability, pseudocount in edges:
-				self.add_transition( a, end, probability, pseudocount )
+			for end, probability, pseudocount, group in edges:
+				self.add_transition( a, end, probability, pseudocount, group )
 
 	def add_model( self, other ):
 		"""
