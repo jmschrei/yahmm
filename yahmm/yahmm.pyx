@@ -2014,7 +2014,11 @@ cdef class Model(object):
 		probability. Both states must be in the HMM already. self.start and
 		self.end are valid arguments here. Probabilities will be normalized
 		such that every node has edges summing to 1. leaving that node, but
-		only when the model is baked.
+		only when the model is baked. 
+
+		By specifying a group as a string, you can tie edges together by giving
+		them the same group. This means that a transition across one edge in the
+		group counts as a transition across all edges in terms of training.
 		"""
 		
 		# If a pseudocount is specified, use it, otherwise use the probability.
@@ -2046,6 +2050,10 @@ cdef class Model(object):
 		Example:
 		model.add_transitions([model.start, s1, s2, s3], s4, [0.2, 0.4, 0.3, 0.9])
 		model.add_transitions(model.start, [s1, s2, s3], [0.6, 0.2, 0.05])
+
+		If a single group is given, it's assumed all edges should belong to that
+		group. Otherwise, either groups can be a list of group identities, or
+		simply None if no group is meant.
 		"""
 
 		# If a pseudocount is specified, use it, otherwise use the probability.
@@ -3626,6 +3634,9 @@ cdef class Model(object):
 		backtracking parser.
 		"""
 		
+		print("Warning: Writing currently only writes out the model structure,\
+			and not any information about tied edges or distributions.")
+		
 		# Change our name to remove all whitespace, as this causes issues
 		# with the parsing later on.
 		self.name = self.name.replace( " ", "_" )
@@ -4287,6 +4298,26 @@ cdef class Model(object):
 
 		cdef double [:] norm = numpy.zeros( m )
 		cdef double probability
+
+		cdef int [:] tied_edges = self.tied_edge_group_size
+		cdef int tied_edge_probability 
+		# Go through the tied state groups and add transitions from each member
+		# in the group to the other members of the group.
+		# For each group defined.
+		for k in xrange( len( tied_edges )-1 ):
+			tied_edge_probability = 0
+
+			# For edge in this group, get the sum of the edges
+			for l in xrange( tied_edges[k], tied_edges[k+1] ):
+				start = self.tied_edges_starts[l]
+				end = self.tied_edges_ends[l]
+				tied_edge_probability += transition_counts[start, end]
+
+			# Update each entry
+			for l in xrange( tied_edges[k], tied_edges[k+1] ):
+				start = self.tied_edges_starts[l]
+				end = self.tied_edges_ends[l]
+				transition_counts[start, end] = tied_edge_probability
 
 		# Calculate the regularizing norm for each node for normalizing the
 		# transition probabilities.

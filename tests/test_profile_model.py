@@ -334,11 +334,67 @@ def test_posterior_transitions_w_training():
 	assert transitions[d1, d2] != transitions[d2, d3]
 	assert transitions[i0, d1] != transitions[i1, d2] != transitions[i2, d3]
 
-@with_setup( tied_edge_setup, teardown )
-def test_posterior_transitions_w_training():
+@with_setup( setup, teardown )
+def test_posterior_transitions_w_vtraining():
 	'''
 	Take a few sequences of variable length, and ensure that some posterior
 	decodings work.
+	'''
+
+	sequences = [ list(x) for x in ( 'A', 'ACT', 'GGCA', 'TACCTGT' ) ]
+	indices = { state.name: i for i, state in enumerate( model.states ) }
+
+	transitions = model.dense_transition_matrix()
+	i0, i1, i2, i3 = indices['I0'], indices['I1'], indices['I2'], indices['I3']
+	d1, d2, d3 = indices['D1'], indices['D2'], indices['D3']
+	m1, m2, m3 = indices['M1'], indices['M2'], indices['M3']
+
+	assert transitions[d1, i1] == transitions[d2, i2]
+	assert transitions[i0, i0] == transitions[i1, i1] == transitions[i2, i2]
+	assert transitions[i0, m1] == transitions[i1, m2]
+	assert transitions[d1, d2] == transitions[d2, d3]
+	assert transitions[i0, d1] == transitions[i1, d2] == transitions[i2, d3]
+
+	model.train( sequences, algorithm='viterbi' )
+	transitions = model.dense_transition_matrix()
+
+	assert transitions[i0, i0] != transitions[i1, i1]
+	assert transitions[d1, d2] != transitions[d2, d3]
+	assert transitions[i0, d1] != transitions[i1, d2] != transitions[i2, d3]
+
+@with_setup( tied_edge_setup, teardown )
+def test_posterior_transitions_w_tied_training():
+	'''
+	Take a few sequences of variable length, and ensure that some posterior
+	decodings work when tied edges are used.
+	'''
+
+	sequences = [ list(x) for x in ( 'A', 'ACT', 'GGCA', 'TACCTGT' ) ]
+	indices = { state.name: i for i, state in enumerate( model.states ) }
+
+	transitions = model.dense_transition_matrix() 
+	i0, i1, i2, i3 = indices['I0'], indices['I1'], indices['I2'], indices['I3']
+	d1, d2, d3 = indices['D1'], indices['D2'], indices['D3']
+	m1, m2, m3 = indices['M1'], indices['M2'], indices['M3']
+
+	assert transitions[d1, i1] == transitions[d2, i2]
+	assert transitions[i0, i0] == transitions[i1, i1] == transitions[i2, i2]
+	assert transitions[i0, m1] == transitions[i1, m2]
+	assert transitions[d1, d2] == transitions[d2, d3]
+	assert transitions[i0, d1] == transitions[i1, d2] == transitions[i2, d3]
+
+	model.train( sequences )
+	transitions = model.dense_transition_matrix() 
+
+	assert transitions[i0, i0] == transitions[i1, i1]
+	assert transitions[d1, d2] == transitions[d2, d3]
+	assert transitions[i0, d1] == transitions[i1, d2] == transitions[i2, d3]
+
+@with_setup( tied_edge_setup, teardown )
+def test_posterior_transitions_w_tied_vtraining():
+	'''
+	Take a few sequences of variable length, and ensure that some posterior
+	decodings work when tied edges are used.
 	'''
 
 	sequences = [ list(x) for x in ( 'A', 'ACT', 'GGCA', 'TACCTGT' ) ]
@@ -355,7 +411,7 @@ def test_posterior_transitions_w_training():
 	assert transitions[d1, d2] == transitions[d2, d3]
 	assert transitions[i0, d1] == transitions[i1, d2] == transitions[i2, d3]
 
-	model.train( sequences )
+	model.train( sequences, algorithm='viterbi' )
 	transitions = model.dense_transition_matrix() 
 
 	assert transitions[d1, i1] == transitions[d2, i2]

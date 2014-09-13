@@ -49,3 +49,12 @@ v1.0.1a, 8/26/2014 --
 (2) Summary statistics implemented for Baum-Welch training. This involves summarizing one sequence at a time and storing the appropriate summary statistics to the distribution object using `Distribution.summarize( items, weights )`, and then updating the parameters using these summary statistics and an appropriate inertia with `Distribution.from_summarize( inertia=0.0 )`. This makes training on large numbers of sequences always faster, but training on small numbers of long sequences take slightly longer. 
 
 (3) Nosetests significantly expanded to include more tests. This includes a new file `test_training.py`, which has a large number of tests on the Viterbi and Baum-Welch training algorithms, with different parameters. This also includes expanded testing of each distribution, and each of the training functions for that sample.
+
+v1.1.0, 9.12/2014 --
+(1) Distribution freezing and thawing added. If a distribution is frozen, it will not change after training. This is useful if you know that some parameterization of the distribution is correct. This can be done on a distribution level, or on the entire model. Thawing a frozen state returns it to normal.
+
+(2) Now Python3 compatible.
+
+(3) Tied edges now added. When training, a transition over an edge now counts as a transition across any edge it is tied to. This can be done easily using the `group` keyword in the `add_transition` function.
+
+(4) `add_transitions` added to the Model class, as a way to add many transitions as a batch.

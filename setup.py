@@ -28,14 +28,14 @@ scripts = [ "examples/{}".format( name ) for name in script_names ]
 
 setup(
     name='yahmm',
-    version='1.0.0',
+    version='1.1.0',
     author='Adam Novak, Jacob Schreiber',
     author_email='anovak1@ucsc.edu, jmschreiber91@gmail.com',
     packages=['yahmm'],
     scripts=scripts,
     url='http://pypi.python.org/pypi/yahmm/',
     license='LICENSE.txt',
-    description='HMM package which you build node by node and edge by edge.',
+    description='YAHMM is a HMM package for Python, implemented in Cython for speed.',
     cmdclass=cmdclass,
     ext_modules=ext_modules,
     install_requires=[
