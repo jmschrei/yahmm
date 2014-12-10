@@ -28,7 +28,7 @@ scripts = [ "examples/{}".format( name ) for name in script_names ]
 
 setup(
     name='yahmm',
-    version='1.1.0',
+    version='1.1.1',
     author='Adam Novak, Jacob Schreiber',
     author_email='anovak1@ucsc.edu, jmschreiber91@gmail.com',
     packages=['yahmm'],

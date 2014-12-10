@@ -90,6 +90,14 @@ def exp(value):
 	
 	return numpy.exp(value)
 
+def log_probability( model, samples ):
+	'''
+	Return the log probability of samples given a model.
+	'''
+
+	return reduce( lambda x, y: pair_lse( x, y ),
+				map( model.log_probability, samples ) )
+
 cdef class Distribution(object):
 	"""
 	Represents a probability distribution over whatever the HMM you're making is
@@ -468,7 +476,7 @@ cdef class NormalDistribution( Distribution ):
 		self.summaries.append( [ mean, variance, weights.sum() ] )
 		
 
-	def from_summaries( self, inertia=0.0 ):
+	def from_summaries( self, inertia=0.0, min_std=0.01 ):
 		'''
 		Takes in a series of summaries, represented as a mean, a variance, and
 		a weight, and updates the underlying distribution. Notes on how to do
@@ -491,6 +499,8 @@ cdef class NormalDistribution( Distribution ):
 			std = csqrt(variance)
 		else:
 			std = 0
+
+		std = max( min_std, std )
 
 		# Get the previous parameters.
 		prior_mean, prior_std = self.parameters
@@ -627,7 +637,7 @@ cdef class LogNormalDistribution( Distribution ):
 		self.summaries.append( [ mean, variance, weights.sum() ] )
 		
 
-	def from_summaries( self, inertia=0.0 ):
+	def from_summaries( self, inertia=0.0, min_std=0.01 ):
 		'''
 		Takes in a series of summaries, represented as a mean, a variance, and
 		a weight, and updates the underlying distribution. Notes on how to do
@@ -651,6 +661,8 @@ cdef class LogNormalDistribution( Distribution ):
 			std = csqrt(variance)
 		else:
 			std = 0
+
+		std = max( min_std, std )
 
 		# Load the previous parameters
 		prior_mean, prior_std = self.parameters
@@ -856,7 +868,7 @@ cdef class GammaDistribution( Distribution ):
 		return random.gammavariate(self.parameters[0], 1.0 / self.parameters[1])
 		
 	def from_sample( self, items, weights=None, inertia=0.0, epsilon=1E-9, 
-		iteration_limit = 1000 ):
+		iteration_limit=1000 ):
 		"""
 		Set the parameters of this Distribution to maximize the likelihood of 
 		the given sample. Items holds some sort of sequence. If weights is 
@@ -1648,6 +1660,7 @@ cdef class MixtureDistribution( Distribution ):
 			weights = numpy.ones(n) / n
 
 		self.parameters = [ distributions, weights ]
+		self.summaries = []
 		self.name = "MixtureDistribution"
 		self.frozen = frozen
 
@@ -1671,7 +1684,7 @@ cdef class MixtureDistribution( Distribution ):
 
 		(d, w), n = self.parameters, len(self.parameters)
 		return _log( numpy.sum([ cexp( d[i].log_probability(symbol) ) \
-			* w[i] for i in xrange(n) ]) )
+			* w[i] for i in xrange( len(d) ) ]) )
 
 	def sample( self ):
 		"""
@@ -1687,13 +1700,106 @@ cdef class MixtureDistribution( Distribution ):
 
 	def from_sample( self, items, weights=None ):
 		"""
-		Currently not implemented, but should be some form of GMM estimation
-		on the data. The issue would be that the MixtureModel can be more
-		expressive than a GMM estimation, since GMM estimation is one type
-		of distribution.
+		Perform EM to estimate the parameters of each distribution
+		which is a part of this mixture.
 		"""
 
-		raise NotImplementedError
+		if weights is None:
+			weights = numpy.ones( len(items) )
+		else:
+			weights = numpy.asarray( weights )
+
+		if weights.sum() == 0:
+			return
+
+		distributions, w = self.parameters
+		n, k = len(items), len(distributions)
+
+		# The responsibility matrix
+		r = numpy.zeros( (n, k) )
+
+		# Calculate the log probabilities of each p
+		for i, distribution in enumerate( distributions ):
+			for j, item in enumerate( items ):
+				r[j, i] = distribution.log_probability( item )
+
+		r = numpy.exp( r )
+
+		# Turn these log probabilities into responsibilities by
+		# normalizing on a row-by-row manner.
+		for i in xrange( n ):
+			r[i] = r[i] / r[i].sum()
+
+		# Weight the responsibilities by the given weights
+		for i in xrange( k ):
+			r[:,i] = r[:,i]*weights
+
+		# Update the emissions of each distribution
+		for i, distribution in enumerate( distributions ):
+			distribution.from_sample( items, weights=r[:,i] )
+
+		# Update the weight of each distribution
+		self.parameters[1] = r.sum( axis=0 ) / r.sum()
+
+	def summarize( self, items, weights=None ):
+		"""
+		Performs the summary step of the EM algorithm to estimate
+		parameters of each distribution which is a part of this mixture.
+		"""
+
+		if weights is None:
+			weights = numpy.ones( len(items) )
+		else:
+			weights = numpy.asarray( weights )
+
+		if weights.sum() == 0:
+			return
+
+		distributions, w = self.parameters
+		n, k = len(items), len(distributions)
+
+		# The responsibility matrix
+		r = numpy.zeros( (n, k) )
+
+		# Calculate the log probabilities of each p
+		for i, distribution in enumerate( distributions ):
+			for j, item in enumerate( items ):
+				r[j, i] = distribution.log_probability( item )
+
+		r = numpy.exp( r )
+
+		# Turn these log probabilities into responsibilities by
+		# normalizing on a row-by-row manner.
+		for i in xrange( n ):
+			r[i] = r[i] / r[i].sum()
+
+		# Weight the responsibilities by the given weights
+		for i in xrange( k ):
+			r[:,i] = r[:,i]*weights
+
+		# Save summary statistics on the emission distributions
+		for i, distribution in enumerate( distributions ):
+			distribution.summarize( items, weights=r[:,i]*weights )
+
+		# Save summary statistics for weight updates
+		self.summaries.append( r.sum( axis=0 ) / r.sum() )
+
+	def from_summaries( self, inertia=0.0 ):
+		"""
+		Performs the actual update step for the EM algorithm.
+		"""
+
+		# If this distribution is frozen, don't do anything.
+		if self.frozen == True:
+			return
+
+		# Update the emission distributions
+		for d in self.parameters[0]:
+			d.from_summaries( inertia=inertia )
+
+		# Update the weights
+		weights = numpy.array( self.summaries )
+		self.parameters[1] = weights.sum( axis=0 ) / weights.sum()
 
 cdef class MultivariateDistribution( Distribution ):
 	"""
@@ -3858,8 +3964,7 @@ cdef class Model(object):
 			# probabilities of all members of the sequence. In this case,
 			# sequences is made up of ( sequence, path ) tuples, instead of
 			# just sequences.
-			log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
-				[self.log_probability( seq, path ) for seq, path in sequences])
+			log_probability_sum = log_probability( self, sequences )
 		
 			self._train_labelled( sequences, transition_pseudocount, 
 				use_pseudocount, edge_inertia, distribution_inertia )
@@ -3867,8 +3972,7 @@ cdef class Model(object):
 			# Take the logsumexp of the log probabilities of the sequences.
 			# Since sequences is just a list of sequences now, we can map
 			# the log probability function directly onto it.
-			log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
-				map( self.log_probability, sequences ) )
+			log_probability_sum = log_probability( self, sequences )
 
 		# Cast everything as a numpy array for input into the other possible
 		# training algorithms.
@@ -3892,13 +3996,11 @@ cdef class Model(object):
 		if algorithm.lower() == 'labelled' or algorithm.lower() == 'labeled':
 			# Since there are labels for this training, make sure to calculate
 			# the log probability given the path. 
-			trained_log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
-				[self.log_probability( seq, path ) for seq, path in sequences])
+			trained_log_probability_sum = log_probability( self, sequences )
 		else:
 			# Given that there are no labels, calculate the logsumexp by
 			# mapping the log probability function directly onto the sequences.
-			trained_log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
-				map( self.log_probability, sequences ) )
+			trained_log_probability_sum = log_probability( self, sequences )
 
 		# Calculate the difference between the two measurements.
 		improvement = trained_log_probability_sum - log_probability_sum
@@ -3923,8 +4025,7 @@ cdef class Model(object):
 
 		# How many iterations of training have we done (counting the first)
 		iteration, improvement = 0, float("+inf")
-		last_log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
-			map( self.log_probability, sequences ) )
+		last_log_probability_sum = log_probability( self, sequences )
 
 		while improvement > stop_threshold or iteration < min_iterations:
 			if max_iterations and iteration >= max_iterations:
@@ -3941,8 +4042,7 @@ cdef class Model(object):
 			# Baum-Welch. First, we must calculate probability of sequences
 			# after training, which is just the logsumexp of the log
 			# probabilities of the sequence.
-			trained_log_probability_sum = reduce( lambda x, y: pair_lse( x, y ),
-				map( self.log_probability, sequences ) )
+			trained_log_probability_sum = log_probability( self, sequences )
 
 			# The improvement is the difference between the log probability of
 			# all the sequences after training, and the log probability before

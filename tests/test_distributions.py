@@ -5,6 +5,9 @@ from nose.tools import with_setup
 import random
 import numpy as np
 
+random.seed(0)
+np.random.seed(0)
+
 def setup():
 	'''
 	No setup or teardown needs to be done in this case.
@@ -250,7 +253,6 @@ def test_exponential():
 	d.summarize( [1.3, 1.0, 1.9] )
 	d.from_summaries()
 
-	print (d.parameters)
 	assert round( d.parameters[0], 4 ) == 0.4545
 
 @with_setup( setup, teardown )
@@ -376,6 +378,11 @@ def test_mixture():
 	assert round( d.log_probability( 6 ), 4 ) == -2.2325
 	assert round( d.log_probability( 5 ), 4 ) == -2.0066
 	assert round( d.log_probability( 4.5 ), 4 ) == -2.0356
+
+	d = MixtureDistribution( [ NormalDistribution( 5, 1 ),
+		                       NormalDistribution( 10, 2 ),
+		                       ExponentialDistribution( 1 ),
+		                       GammaDistribution( 5, 2 ) ] )
 
 @with_setup( setup, teardown )
 def test_multivariate():

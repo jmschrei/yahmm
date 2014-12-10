@@ -58,3 +58,12 @@ v1.1.0, 9.12/2014 --
 (3) Tied edges now added. When training, a transition over an edge now counts as a transition across any edge it is tied to. This can be done easily using the `group` keyword in the `add_transition` function.
 
 (4) `add_transitions` added to the Model class, as a way to add many transitions as a batch.
+
+v1.1.1 12/9/2014
+(1) log_probability( model, samples ) function added, which calculates the log probability of a group of samples given a model. This can be either a distribution or a HMM.
+
+(2) MixtureDistribution bug fixed in which it would only look at the first two distributions when calculating log probability
+
+(3) EM algorithm added to train MixtureDistributions. Both emission and weight updates added.
+
+(4) Error in NormalDistribution.from_summaries in which it did not respect min_std. This worked for from_sample but not from_summaries.
