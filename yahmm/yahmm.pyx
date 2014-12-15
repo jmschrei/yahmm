@@ -205,9 +205,6 @@ cdef class Distribution(object):
 		if len( self.summaries ) == 0:
 			self.summaries = [ items, weights ]
 
-		if weights.sum() == 0:
-			return
-
 		# Otherwise, append the items and weights
 		else:
 			prior_items, prior_weights = self.summaries
@@ -282,10 +279,14 @@ cdef class UniformDistribution( Distribution ):
 		if self.frozen == True:
 			return
 
-		if weights is not None:
-			# Throw out items with weight 0
-			items = [item for (item, weight) in izip(items, weights) 
-				if weight > 0]
+		# Calculate weights. If none are provided, give uniform weights
+		if weights is None:
+			weights = numpy.ones_like( items )
+		else:
+			weights = numpy.asarray( weights )
+
+		if weights.sum() == 0:
+			return
 		
 		if len(items) == 0:
 			# No sample, so just ignore it and keep our old parameters.
@@ -306,16 +307,16 @@ cdef class UniformDistribution( Distribution ):
 		summary statistic to be used in training later.
 		'''
 
-		if weights is not None:
-			# Throw out items with weight 0
-			items = [ item for item, weight in izip( items, weights )
-				if weight > 0 ]
+		if weights is None:
+			weights = numpy.ones_like( items )
+		else:
+			weights = numpy.asarray( weights )
+
+		if weights.sum() == 0:
+			return
 
 		if len( items ) == 0:
 			# No sample, so just ignore it and keep our own parameters.
-			return
-
-		if weights.sum() == 0:
 			return
 
 		items = numpy.asarray( items )
