@@ -205,6 +205,9 @@ cdef class Distribution(object):
 		if len( self.summaries ) == 0:
 			self.summaries = [ items, weights ]
 
+		if weights.sum() == 0:
+			return
+
 		# Otherwise, append the items and weights
 		else:
 			prior_items, prior_weights = self.summaries
@@ -310,6 +313,9 @@ cdef class UniformDistribution( Distribution ):
 
 		if len( items ) == 0:
 			# No sample, so just ignore it and keep our own parameters.
+			return
+
+		if weights.sum() == 0:
 			return
 
 		items = numpy.asarray( items )
@@ -465,6 +471,9 @@ cdef class NormalDistribution( Distribution ):
 			weights = numpy.ones_like( items )
 		else:
 			weights = numpy.asarray( weights )
+
+		if weights.sum() == 0:
+			return
 
 		# Save the mean and variance, the summary statistics for a normal
 		# distribution.
@@ -627,6 +636,9 @@ cdef class LogNormalDistribution( Distribution ):
 			weights = numpy.ones_like( items )
 		else:
 			weights = numpy.asarray( weights )
+
+		if weights.sum() == 0:
+			return
 
 		# Calculate the mean and variance, which are the summary statistics
 		# for a log-normal distribution.
@@ -793,6 +805,9 @@ cdef class ExponentialDistribution( Distribution ):
 			weights = numpy.ones_like( items )
 		else:
 			weights = numpy.asarray( weights )
+
+		if weights.sum() == 0:
+			return
 
 		# Calculate the summary statistic, which in this case is the mean.
 		mean = numpy.average( items, weights=weights )
@@ -1263,6 +1278,9 @@ cdef class DiscreteDistribution(Distribution):
 			weights = numpy.ones( n )
 		else:
 			weights = numpy.asarray( weights )
+
+		if weights.sum() == 0:
+			return
 
 		characters = self.summaries[0]
 		for character, weight in izip( items, weights ):
