@@ -43,6 +43,6 @@ elif os.name == 'posix':
     pyximport.install()
 
 
-from yahmm import *
+from .yahmm import *
 
 __version__ = '1.1.2'
