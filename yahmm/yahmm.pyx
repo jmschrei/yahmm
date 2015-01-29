@@ -2999,7 +2999,7 @@ cdef class Model(object):
 			b[n, self.end_index] = 0
 		else:
 			for i in xrange(self.silent_start):
-				b[n, i] = e[n-1, i]
+				b[n, i] = 0.
 			for i in xrange(self.silent_start, m):
 				b[n, i] = NEGINF
 

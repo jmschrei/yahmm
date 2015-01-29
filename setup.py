@@ -21,18 +21,12 @@ else:
         Extension("yahmm.yahmm", [ "yahmm/yahmm.c" ], include_dirs=[np.get_include()]),
     ]
 
-script_names = [ 'example.py', 'rainy_sunny_hmm.py', 'tied_state_hmm.py', 
-    'infinite_hmm.py']
-
-scripts = [ "examples/{}".format( name ) for name in script_names ]
-
 setup(
     name='yahmm',
-    version='1.1.2',
+    version='1.1.3',
     author='Adam Novak, Jacob Schreiber',
     author_email='anovak1@ucsc.edu, jmschreiber91@gmail.com',
     packages=['yahmm'],
-    scripts=scripts,
     url='http://pypi.python.org/pypi/yahmm/',
     license='LICENSE.txt',
     description='YAHMM is a HMM package for Python, implemented in Cython for speed.',
