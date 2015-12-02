@@ -5,6 +5,8 @@ yahmm
 
 Yet Another Hidden Markov Model library
 
+<b>NOTE: While yahmm is still fully functional, active development has moved over to  [pomegranate](https://github.com/jmschrei/pomegranate). Please switch over at your convenience.</b>
+
 This module implements Hidden Markov Models (HMMs) with a compositional, graph-
 based interface. Models can be constructed node by node and edge by edge, built
 up from smaller models, loaded from files, baked (into a form that can be used
